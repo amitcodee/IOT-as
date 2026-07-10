@@ -1,257 +1,241 @@
 """
-RFID Attendance System - Local Terminal Version
-No Google Sheets. No internet. Everything runs locally.
+RFID Attendance System - Hardware + Terminal
+ESP32 scans card -> Python reads serial -> Shows JSON in terminal
 
-HOW TO RUN:
-  1. Open terminal in this folder
-  2. Run: python test.py
-  3. Type a UID to simulate card scan
-  4. See JSON output in terminal
-
-Sample UIDs already registered:
-  A1B2C3D4  -> John Smith (Engineering)
-  E5F6G7H8  -> Sarah Johnson (Marketing)
-  I9J0K1L2  -> Mike Wilson (HR)
+pip install pyserial
+python test.py
 """
 
+import serial
+import serial.tools.list_ports
 import json
 import os
 from datetime import datetime
 
-# ---- LOCAL DATABASE (in memory) ----
+# ---- EMPLOYEE DATABASE ----
 
 employees = {
-    "A1B2C3D4": {"id": "EMP001", "name": "John Smith", "department": "Engineering", "designation": "Software Engineer", "phone": "9876543210", "email": "john@company.com"},
-    "E5F6G7H8": {"id": "EMP002", "name": "Sarah Johnson", "department": "Marketing", "designation": "Marketing Manager", "phone": "9876543211", "email": "sarah@company.com"},
-    "I9J0K1L2": {"id": "EMP003", "name": "Mike Wilson", "department": "HR", "designation": "HR Executive", "phone": "9876543212", "email": "mike@company.com"},
+    "A1B2C3D4": {"id": "EMP001", "name": "John Smith", "department": "Engineering"},
+    "E5F6G7H8": {"id": "EMP002", "name": "Sarah Johnson", "department": "Marketing"},
+    "I9J0K1L2": {"id": "EMP003", "name": "Mike Wilson", "department": "HR"},
 }
 
-attendance = []  # stores today's scans
+attendance = []
 
-# ---- CORE FUNCTIONS ----
+# ---- SCAN LOGIC ----
 
-def scan_card(uid):
-    """Process a card scan and return JSON result"""
-    uid = uid.strip().upper().replace(" ", "")
+def process_scan(uid):
+    uid = uid.strip().upper()
     now = datetime.now()
     date = now.strftime("%Y-%m-%d")
-    time = now.strftime("%H:%M:%S")
+    time_str = now.strftime("%H:%M:%S")
 
-    # Check if card is registered
     if uid not in employees:
         return {
             "status": "error",
             "message": "UNKNOWN CARD",
             "uid": uid,
-            "timestamp": time
+            "time": time_str
         }
 
     emp = employees[uid]
 
-    # Find today's record for this employee
-    today_record = None
+    # Find today's record
+    today_rec = None
     for rec in attendance:
         if rec["uid"] == uid and rec["date"] == date:
-            today_record = rec
+            today_rec = rec
             break
 
     # 1st scan = CHECK IN
-    if today_record is None:
-        status = "Late" if is_late(time) else "Present"
-        record = {
+    if today_rec is None:
+        status = "Late" if is_late(time_str) else "Present"
+        attendance.append({
             "uid": uid,
             "employee_id": emp["id"],
             "employee_name": emp["name"],
             "department": emp["department"],
             "date": date,
-            "check_in": time,
+            "check_in": time_str,
             "check_out": None,
             "working_hours": None,
-            "status": status,
-            "device": "Python_Terminal"
-        }
-        attendance.append(record)
-
+            "status": status
+        })
         return {
             "status": "success",
             "type": "CHECK_IN",
             "employee": emp["name"],
             "employee_id": emp["id"],
             "department": emp["department"],
-            "check_in": time,
-            "attendance_status": status,
-            "message": f"{emp['name']} checked in at {time}"
+            "check_in": time_str,
+            "attendance_status": status
         }
 
     # 2nd scan = CHECK OUT
-    if today_record["check_out"] is None:
-        today_record["check_out"] = time
-        today_record["working_hours"] = calc_hours(today_record["check_in"], time)
-
+    if today_rec["check_out"] is None:
+        today_rec["check_out"] = time_str
+        today_rec["working_hours"] = calc_hours(today_rec["check_in"], time_str)
         return {
             "status": "success",
             "type": "CHECK_OUT",
             "employee": emp["name"],
             "employee_id": emp["id"],
-            "department": emp["department"],
-            "check_in": today_record["check_in"],
-            "check_out": time,
-            "working_hours": today_record["working_hours"],
-            "message": f"{emp['name']} checked out at {time}"
+            "check_in": today_rec["check_in"],
+            "check_out": time_str,
+            "working_hours": today_rec["working_hours"]
         }
 
-    # 3rd scan = IGNORE
+    # 3rd+ scan = IGNORE
     return {
         "status": "info",
         "type": "ALREADY_DONE",
         "employee": emp["name"],
-        "employee_id": emp["id"],
-        "check_in": today_record["check_in"],
-        "check_out": today_record["check_out"],
-        "working_hours": today_record["working_hours"],
-        "message": f"{emp['name']} already done for today"
+        "message": "Already checked in and out today"
     }
 
 
-def is_late(time_str):
-    """Late if after 09:15"""
-    parts = time_str.split(":")
-    mins = int(parts[0]) * 60 + int(parts[1])
-    return mins > 555  # 9*60+15
+def is_late(t):
+    p = t.split(":")
+    return int(p[0]) * 60 + int(p[1]) > 555
 
 
-def calc_hours(check_in, check_out):
-    """Calculate working hours between two times"""
-    in_p = check_in.split(":")
-    out_p = check_out.split(":")
-    diff = (int(out_p[0]) * 60 + int(out_p[1])) - (int(in_p[0]) * 60 + int(in_p[1]))
-    if diff < 0:
-        diff += 1440
-    return f"{diff // 60}h {diff % 60}m"
-
-
-def show_employees():
-    """Return all employees as JSON"""
-    data = []
-    for uid, emp in employees.items():
-        data.append({"uid": uid, **emp})
-    return {"status": "success", "count": len(data), "employees": data}
-
-
-def show_attendance():
-    """Return all attendance records as JSON"""
-    return {"status": "success", "count": len(attendance), "records": attendance}
-
-
-def add_employee():
-    """Add a new employee"""
-    print()
-    uid = input("  RFID UID     : ").strip().upper().replace(" ", "")
-    if not uid:
-        return {"status": "error", "message": "UID cannot be empty"}
-    if uid in employees:
-        return {"status": "error", "message": "UID already registered", "existing": employees[uid]["name"]}
-
-    emp_id = input("  Employee ID  : ").strip()
-    name = input("  Name         : ").strip()
-    dept = input("  Department   : ").strip()
-
-    if not all([emp_id, name, dept]):
-        return {"status": "error", "message": "All fields required"}
-
-    employees[uid] = {
-        "id": emp_id,
-        "name": name,
-        "department": dept,
-        "designation": "",
-        "phone": "",
-        "email": ""
-    }
-
-    return {"status": "success", "message": f"{name} registered with UID {uid}"}
-
-
-# ---- TERMINAL UI ----
-
-def clear():
-    os.system('cls' if os.name == 'nt' else 'clear')
+def calc_hours(ci, co):
+    a = ci.split(":")
+    b = co.split(":")
+    d = (int(b[0]) * 60 + int(b[1])) - (int(a[0]) * 60 + int(a[1]))
+    if d < 0: d += 1440
+    return f"{d // 60}h {d % 60}m"
 
 
 def print_json(data):
-    """Pretty print JSON with color-like formatting"""
-    print()
-    print("  " + "-" * 46)
-    print("  JSON Response:")
-    print("  " + "-" * 46)
-    formatted = json.dumps(data, indent=4)
-    for line in formatted.split("\n"):
-        print("  " + line)
-    print("  " + "-" * 46)
+    print("\n" + "=" * 50)
+    print(json.dumps(data, indent=4))
+    print("=" * 50 + "\n")
 
+
+# ---- FIND ESP32 PORT ----
+
+def find_port():
+    ports = serial.tools.list_ports.comports()
+    if not ports:
+        return None
+    print("\n  Available COM ports:")
+    for i, p in enumerate(ports):
+        print(f"    [{i}] {p.device} - {p.description}")
+    print()
+    choice = input("  Select port number: ").strip()
+    try:
+        return ports[int(choice)].device
+    except (ValueError, IndexError):
+        return None
+
+
+# ---- MAIN ----
 
 def main():
-    clear()
+    os.system('cls' if os.name == 'nt' else 'clear')
     print()
     print("=" * 50)
-    print("  RFID Attendance System - Terminal")
+    print("  RFID Attendance System")
+    print("  Hardware: ESP32 + RC522")
     print("=" * 50)
     print()
-    print("  Ready! Type a UID to scan or a command.")
+    print("  [1] Connect to ESP32 (scan real cards)")
+    print("  [2] Manual mode (type UIDs to test)")
     print()
-    print("  COMMANDS:")
-    print("    scan <uid>   - Scan a card (or just type UID)")
-    print("    employees    - Show all employees")
-    print("    attendance   - Show all attendance records")
-    print("    add          - Register new employee")
-    print("    help         - Show this help")
-    print("    quit         - Exit")
+    mode = input("  Choose (1 or 2): ").strip()
+
+    if mode == "1":
+        hardware_mode()
+    else:
+        manual_mode()
+
+
+def hardware_mode():
+    port = find_port()
+    if not port:
+        print("  No port selected. Exiting.")
+        return
+
+    print(f"\n  Connecting to {port}...")
+
+    try:
+        ser = serial.Serial(port, 115200, timeout=1)
+    except serial.SerialException as e:
+        print(f"  ERROR: {e}")
+        return
+
+    print("  Connected! Waiting for ESP32...")
+
+    # Wait for RFID_READY
+    while True:
+        line = ser.readline().decode("utf-8", errors="ignore").strip()
+        if line == "RFID_READY":
+            print("  ESP32 is ready!")
+            break
+        if line:
+            print(f"  ESP32: {line}")
+
     print()
-    print("  SAMPLE UIDs:")
-    print("    A1B2C3D4  ->  John Smith")
-    print("    E5F6G7H8  ->  Sarah Johnson")
-    print("    I9J0K1L2  ->  Mike Wilson")
+    print("  *** SCAN A CARD ON THE READER ***")
+    print("  (Press Ctrl+C to stop)\n")
+
+    try:
+        while True:
+            line = ser.readline().decode("utf-8", errors="ignore").strip()
+            if not line:
+                continue
+
+            if line.startswith("UID:"):
+                uid = line[4:]
+                print(f"  Card scanned: {uid}")
+                result = process_scan(uid)
+                print_json(result)
+                print("  *** SCAN NEXT CARD ***\n")
+    except KeyboardInterrupt:
+        print("\n  Stopped.")
+    finally:
+        ser.close()
+
+
+def manual_mode():
+    print()
+    print("  Manual mode - type UID and press Enter")
+    print("  Sample UIDs: A1B2C3D4 | E5F6G7H8 | I9J0K1L2")
+    print("  Type 'employees' or 'attendance' to view data")
+    print("  Type 'add' to register new card")
+    print("  Type 'quit' to exit")
     print()
 
     while True:
         try:
             cmd = input("  SCAN > ").strip()
         except (KeyboardInterrupt, EOFError):
-            print("\n  Bye!")
             break
 
         if not cmd:
             continue
-
-        lower = cmd.lower()
-
-        if lower in ("quit", "exit", "q"):
-            print("  Bye!")
+        if cmd.lower() in ("quit", "exit", "q"):
             break
-
-        elif lower == "help":
-            print()
-            print("  scan <uid>   - Scan a card")
-            print("  employees    - Show all employees")
-            print("  attendance   - Show attendance records")
-            print("  add          - Register new employee")
-            print("  quit         - Exit")
-            print()
-
-        elif lower == "employees":
-            print_json(show_employees())
-
-        elif lower == "attendance":
-            print_json(show_attendance())
-
-        elif lower == "add":
-            result = add_employee()
-            print_json(result)
-
+        elif cmd.lower() == "employees":
+            print_json({"employees": [{"uid": k, **v} for k, v in employees.items()]})
+        elif cmd.lower() == "attendance":
+            print_json({"records": attendance})
+        elif cmd.lower() == "add":
+            uid = input("  UID       : ").strip().upper()
+            emp_id = input("  Emp ID    : ").strip()
+            name = input("  Name      : ").strip()
+            dept = input("  Department: ").strip()
+            if uid and emp_id and name and dept:
+                employees[uid] = {"id": emp_id, "name": name, "department": dept}
+                print_json({"status": "success", "message": f"{name} registered with {uid}"})
+            else:
+                print_json({"status": "error", "message": "All fields required"})
         else:
-            # Treat as UID scan
-            uid = cmd.replace("scan ", "").strip()
-            result = scan_card(uid)
+            result = process_scan(cmd.upper().replace(" ", ""))
             print_json(result)
+
+    print("  Bye!")
 
 
 if __name__ == "__main__":
