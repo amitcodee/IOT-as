@@ -1,19 +1,15 @@
 /*
-  TechCADD Attendance - ESP32 WiFi + Firebase (Lightweight)
+  TechCADD Attendance - ESP32 WiFi + Firebase
+  LIBRARY NEEDED: MFRC522 (install from Arduino Library Manager)
 
   WIRING:
-    RC522   ->  ESP32
-    SDA     ->  GPIO 5
-    SCK     ->  GPIO 18
-    MOSI    ->  GPIO 23
-    MISO    ->  GPIO 19
-    RST     ->  GPIO 22
-    3.3V    ->  3.3V
-    GND     ->  GND
-
-  LIBRARIES NEEDED:
-    - MFRC522
-    - ArduinoJson (by Benoit Blanchon)
+    RC522 SDA  -> GPIO 5
+    RC522 SCK  -> GPIO 18
+    RC522 MOSI -> GPIO 23
+    RC522 MISO -> GPIO 19
+    RC522 RST  -> GPIO 22
+    RC522 3.3V -> 3.3V
+    RC522 GND  -> GND
 */
 
 #include <WiFi.h>
@@ -21,19 +17,19 @@
 #include <WiFiClientSecure.h>
 #include <SPI.h>
 #include <MFRC522.h>
-
 #include <time.h>
 
 // ============================================================
-//  CHANGE THESE VALUES
+//  CHANGE THESE 6 VALUES TO YOUR OWN
 // ============================================================
-#define WIFI_SSID       "Airtel_asmi_2291"
-#define WIFI_PASSWORD   "Air@08884"
-
-#define FIREBASE_API_KEY      "AIzaSyCxyzV5yPD05P2Ij_oFLhwbtapZ5Wo0UTI"
-#define FIREBASE_PROJECT_ID   "iot-tce-db97e"
-#define FIREBASE_EMAIL        "amit.techcadd.dev@gmail.com"
-#define FIREBASE_PASSWORD     "Amitcodee@#123"
+#define MY_WIFI_SSID       "YOUR_OFFICE_WIFI_NAME"
+#define MY_WIFI_PASS       "YOUR_WIFI_PASSWORD"
+#define MY_API_KEY         "YOUR_FIREBASE_API_KEY"
+#define MY_PROJECT_ID      "YOUR_FIREBASE_PROJECT_ID"
+#define MY_AUTH_EMAIL      "YOUR_FIREBASE_AUTH_EMAIL"
+#define MY_AUTH_PASS       "YOUR_FIREBASE_AUTH_PASSWORD"
+#define MY_GMT_OFFSET      19800
+// India=19800 Dubai=14400 London=0 Singapore=28800
 // ============================================================
 
 #define SS_PIN  5
@@ -47,144 +43,13 @@ String lastUID = "";
 unsigned long lastScanTime = 0;
 unsigned long tokenTime = 0;
 
-void setup() {
-  Serial.begin(115200);
-  delay(1000);
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, LOW);
-
-  Serial.println();
-  Serial.println("================================");
-  Serial.println("  TechCADD Attendance System");
-  Serial.println("================================");
-
-  // WiFi
-  Serial.print("WiFi connecting");
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  int tries = 0;
-  while (WiFi.status() != WL_CONNECTED && tries < 40) {
-    delay(500);
-    Serial.print(".");
-    digitalWrite(LED_PIN, !digitalRead(LED_PIN));
-    tries++;
-  }
-  Serial.println();
-
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.print("WiFi OK: ");
-    Serial.println(WiFi.localIP());
-    digitalWrite(LED_PIN, HIGH);
-  } else {
-    Serial.println("WiFi FAILED! Check SSID/password.");
-    Serial.println("Restarting in 5 seconds...");
-    delay(5000);
-    ESP.restart();
-  }
-
-  // Time
-  configTime(GMT_OFFSET, 0, "pool.ntp.org");
-  Serial.print("Time sync");
-  struct tm t;
-  tries = 0;
-  while (!getLocalTime(&t) && tries < 15) {
-    delay(500);
-    Serial.print(".");
-    tries++;
-  }
-  Serial.println();
-  if (tries < 15) {
-    char buf[20];
-    strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &t);
-    Serial.print("Time: ");
-    Serial.println(buf);
-  } else {
-    Serial.println("Time sync failed");
-  }
-
-  // Firebase login
-  if (firebaseLogin()) {
-    Serial.println("Login OK");
-  } else {
-    Serial.println("Login FAILED! Check API key and credentials.");
-  }
-
-  // RFID
-  SPI.begin();
-  rfid.PCD_Init();
-  delay(100);
-
-  Serial.println();
-  Serial.println("READY - Scan a card!");
-  Serial.println("================================");
-
-  // 3 blinks = ready
-  for (int i = 0; i < 3; i++) {
-    digitalWrite(LED_PIN, LOW); delay(150);
-    digitalWrite(LED_PIN, HIGH); delay(150);
-  }
-}
-
-void loop() {
-  // Reconnect WiFi if needed
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("WiFi lost, reconnecting...");
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    int tries = 0;
-    while (WiFi.status() != WL_CONNECTED && tries < 20) {
-      delay(500);
-      tries++;
-    }
-    if (WiFi.status() != WL_CONNECTED) return;
-    Serial.println("WiFi reconnected");
-  }
-
-  // Check for card
-  if (!rfid.PICC_IsNewCardPresent()) return;
-  if (!rfid.PICC_ReadCardSerial()) return;
-
-  // Build UID
-  String uid = "";
-  for (byte i = 0; i < rfid.uid.size; i++) {
-    if (rfid.uid.uidByte[i] < 0x10) uid += "0";
-    uid += String(rfid.uid.uidByte[i], HEX);
-  }
-  uid.toUpperCase();
-
-  rfid.PICC_HaltA();
-  rfid.PCD_StopCrypto1();
-
-  // Skip duplicate within 3 sec
-  if (uid == lastUID && (millis() - lastScanTime) < 3000) return;
-  lastUID = uid;
-  lastScanTime = millis();
-
-  Serial.print("Card: ");
-  Serial.println(uid);
-
-  // Refresh token if older than 50 min
-  if (idToken == "" || (millis() - tokenTime) > 3000000) {
-    firebaseLogin();
-  }
-
-  if (idToken == "") {
-    Serial.println("No token, skip");
-    blink(5, 80);
-    return;
-  }
-
-  processScan(uid);
-}
-
-// ---- Blink ----
-void blink(int times, int ms) {
+void blinkLed(int times, int ms) {
   for (int i = 0; i < times; i++) {
     digitalWrite(LED_PIN, LOW); delay(ms);
     digitalWrite(LED_PIN, HIGH); delay(ms);
   }
 }
 
-// ---- Date/Time ----
 String getDate() {
   struct tm t;
   if (!getLocalTime(&t)) return "";
@@ -193,7 +58,7 @@ String getDate() {
   return String(buf);
 }
 
-String getTime() {
+String getTime2() {
   struct tm t;
   if (!getLocalTime(&t)) return "";
   char buf[9];
@@ -201,23 +66,32 @@ String getTime() {
   return String(buf);
 }
 
-// ---- Firebase Login ----
+String parseField(String json, String field) {
+  String search = "\"" + field + "\":{\"stringValue\":\"";
+  int start = json.indexOf(search);
+  if (start < 0) return "";
+  start += search.length();
+  int end = json.indexOf("\"", start);
+  if (end < 0) return "";
+  return json.substring(start, end);
+}
+
 bool firebaseLogin() {
   WiFiClientSecure client;
   client.setInsecure();
-
   HTTPClient http;
+
   String url = "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=";
-  url += API_KEY;
+  url += MY_API_KEY;
 
   http.begin(client, url);
   http.addHeader("Content-Type", "application/json");
   http.setTimeout(10000);
 
   String body = "{\"email\":\"";
-  body += AUTH_EMAIL;
+  body += MY_AUTH_EMAIL;
   body += "\",\"password\":\"";
-  body += AUTH_PASSWORD;
+  body += MY_AUTH_PASS;
   body += "\",\"returnSecureToken\":true}";
 
   int code = http.POST(body);
@@ -225,10 +99,10 @@ bool firebaseLogin() {
 
   if (code == 200) {
     String resp = http.getString();
-    int start = resp.indexOf("\"idToken\":\"") + 11;
-    int end = resp.indexOf("\"", start);
-    if (start > 10 && end > start) {
-      idToken = resp.substring(start, end);
+    int s = resp.indexOf("\"idToken\":\"") + 11;
+    int e = resp.indexOf("\"", s);
+    if (s > 10 && e > s) {
+      idToken = resp.substring(s, e);
       tokenTime = millis();
       ok = true;
     }
@@ -236,19 +110,17 @@ bool firebaseLogin() {
     Serial.print("Login error: ");
     Serial.println(code);
   }
-
   http.end();
   return ok;
 }
 
-// ---- Firestore GET ----
 int fsGet(String path, String &response) {
   WiFiClientSecure client;
   client.setInsecure();
-
   HTTPClient http;
+
   String url = "https://firestore.googleapis.com/v1/projects/";
-  url += PROJECT_ID;
+  url += MY_PROJECT_ID;
   url += "/databases/(default)/documents/";
   url += path;
 
@@ -257,23 +129,19 @@ int fsGet(String path, String &response) {
   http.setTimeout(10000);
 
   int code = http.GET();
-  if (code == 200) {
-    response = http.getString();
-  } else {
-    response = "";
-  }
+  if (code == 200) response = http.getString();
+  else response = "";
   http.end();
   return code;
 }
 
-// ---- Firestore PATCH ----
 bool fsPatch(String path, String body) {
   WiFiClientSecure client;
   client.setInsecure();
-
   HTTPClient http;
+
   String url = "https://firestore.googleapis.com/v1/projects/";
-  url += PROJECT_ID;
+  url += MY_PROJECT_ID;
   url += "/databases/(default)/documents/";
   url += path;
 
@@ -287,14 +155,13 @@ bool fsPatch(String path, String body) {
   return (code == 200);
 }
 
-// ---- Firestore PATCH with mask ----
 bool fsPatchField(String path, String body, String field) {
   WiFiClientSecure client;
   client.setInsecure();
-
   HTTPClient http;
+
   String url = "https://firestore.googleapis.com/v1/projects/";
-  url += PROJECT_ID;
+  url += MY_PROJECT_ID;
   url += "/databases/(default)/documents/";
   url += path;
   url += "?updateMask.fieldPaths=";
@@ -310,39 +177,33 @@ bool fsPatchField(String path, String body, String field) {
   return (code == 200);
 }
 
-// ---- Process Scan ----
 void processScan(String uid) {
   String dateKey = getDate();
-  String timeStr = getTime();
+  String timeStr = getTime2();
 
   if (dateKey == "" || timeStr == "") {
     Serial.println("Time not ready");
-    blink(5, 80);
+    blinkLed(5, 80);
     return;
   }
 
-  // Check employee exists
   String empResp;
   int empCode = fsGet("employees/" + uid, empResp);
-
   if (empCode != 200) {
     Serial.println("UNKNOWN CARD");
-    blink(5, 80);
+    blinkLed(5, 80);
     return;
   }
 
-  // Parse employee name
   String empName = parseField(empResp, "name");
   String empId = parseField(empResp, "employeeId");
   if (empName == "") empName = "Unknown";
 
-  // Check today's attendance
   String docId = dateKey + "_" + uid;
   String attResp;
   int attCode = fsGet("attendance/" + docId, attResp);
 
   if (attCode != 200) {
-    // No record → CHECK IN
     String body = "{\"fields\":{";
     body += "\"uid\":{\"stringValue\":\"" + uid + "\"},";
     body += "\"employeeId\":{\"stringValue\":\"" + empId + "\"},";
@@ -354,44 +215,141 @@ void processScan(String uid) {
 
     if (fsPatch("attendance/" + docId, body)) {
       Serial.println("CHECK IN: " + empName + " at " + timeStr);
-      blink(1, 200);
+      blinkLed(1, 200);
     } else {
       Serial.println("Write failed");
-      blink(5, 80);
+      blinkLed(5, 80);
     }
     return;
   }
 
-  // Record exists — check if checkOut is null
   bool hasCheckOut = (attResp.indexOf("\"checkOut\":{\"stringValue\"") > 0);
 
   if (!hasCheckOut) {
-    // CHECK OUT
     String body = "{\"fields\":{";
     body += "\"checkOut\":{\"stringValue\":\"" + timeStr + "\"}";
     body += "}}";
 
     if (fsPatchField("attendance/" + docId, body, "checkOut")) {
       Serial.println("CHECK OUT: " + empName + " at " + timeStr);
-      blink(2, 150);
+      blinkLed(2, 150);
     } else {
       Serial.println("Update failed");
-      blink(5, 80);
+      blinkLed(5, 80);
     }
     return;
   }
 
   Serial.println("ALREADY DONE: " + empName);
-  blink(3, 300);
+  blinkLed(3, 300);
 }
 
-// ---- Parse field from Firestore JSON ----
-String parseField(String json, String field) {
-  String search = "\"" + field + "\":{\"stringValue\":\"";
-  int start = json.indexOf(search);
-  if (start < 0) return "";
-  start += search.length();
-  int end = json.indexOf("\"", start);
-  if (end < 0) return "";
-  return json.substring(start, end);
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, LOW);
+
+  Serial.println();
+  Serial.println("================================");
+  Serial.println("  TechCADD Attendance System");
+  Serial.println("================================");
+
+  Serial.print("WiFi connecting");
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(MY_WIFI_SSID, MY_WIFI_PASS);
+  int tries = 0;
+  while (WiFi.status() != WL_CONNECTED && tries < 40) {
+    delay(500);
+    Serial.print(".");
+    digitalWrite(LED_PIN, !digitalRead(LED_PIN));
+    tries++;
+  }
+  Serial.println();
+
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.print("WiFi OK: ");
+    Serial.println(WiFi.localIP());
+    digitalWrite(LED_PIN, HIGH);
+  } else {
+    Serial.println("WiFi FAILED!");
+    delay(5000);
+    ESP.restart();
+  }
+
+  configTime(MY_GMT_OFFSET, 0, "pool.ntp.org");
+  Serial.print("Time sync");
+  struct tm t;
+  tries = 0;
+  while (!getLocalTime(&t) && tries < 15) {
+    delay(500);
+    Serial.print(".");
+    tries++;
+  }
+  Serial.println();
+  if (tries < 15) {
+    char buf[20];
+    strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &t);
+    Serial.print("Time: ");
+    Serial.println(buf);
+  }
+
+  if (firebaseLogin()) Serial.println("Login OK");
+  else Serial.println("Login FAILED!");
+
+  SPI.begin();
+  rfid.PCD_Init();
+  delay(100);
+
+  Serial.println();
+  Serial.println("READY - Scan a card!");
+  Serial.println("================================");
+  blinkLed(3, 150);
+  digitalWrite(LED_PIN, HIGH);
+}
+
+void loop() {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi lost...");
+    WiFi.begin(MY_WIFI_SSID, MY_WIFI_PASS);
+    int tries = 0;
+    while (WiFi.status() != WL_CONNECTED && tries < 20) {
+      delay(500);
+      tries++;
+    }
+    if (WiFi.status() != WL_CONNECTED) return;
+    Serial.println("WiFi back");
+  }
+
+  if (!rfid.PICC_IsNewCardPresent()) return;
+  if (!rfid.PICC_ReadCardSerial()) return;
+
+  String uid = "";
+  for (byte i = 0; i < rfid.uid.size; i++) {
+    if (rfid.uid.uidByte[i] < 0x10) uid += "0";
+    uid += String(rfid.uid.uidByte[i], HEX);
+  }
+  uid.toUpperCase();
+
+  rfid.PICC_HaltA();
+  rfid.PCD_StopCrypto1();
+
+  if (uid == lastUID && (millis() - lastScanTime) < 3000) return;
+  lastUID = uid;
+  lastScanTime = millis();
+
+  Serial.print("Card: ");
+  Serial.println(uid);
+
+  if (idToken == "" || (millis() - tokenTime) > 3000000) {
+    firebaseLogin();
+  }
+
+  if (idToken == "") {
+    Serial.println("No token");
+    blinkLed(5, 80);
+    return;
+  }
+
+  processScan(uid);
 }
