@@ -311,21 +311,25 @@ void setup() {
     Serial.println("FAILED - No internet!");
   }
 
-  configTime(MY_GMT_OFFSET, 0, "pool.ntp.org");
+  configTime(MY_GMT_OFFSET, 0, "pool.ntp.org", "time.google.com", "time.nist.gov");
   Serial.print("Time sync");
   struct tm t;
   tries = 0;
-  while (!getLocalTime(&t) && tries < 15) {
-    delay(500);
+  while (!getLocalTime(&t, 1000) && tries < 30) {
+    delay(1000);
     Serial.print(".");
     tries++;
   }
   Serial.println();
-  if (tries < 15) {
+  if (tries < 30) {
     char buf[20];
     strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &t);
     Serial.print("Time: ");
     Serial.println(buf);
+  } else {
+    Serial.println("Time sync failed, restarting...");
+    delay(3000);
+    ESP.restart();
   }
 
   if (firebaseLogin()) Serial.println("Login OK");
