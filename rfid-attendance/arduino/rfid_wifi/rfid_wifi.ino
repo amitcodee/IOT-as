@@ -95,11 +95,14 @@ bool firebaseLogin() {
   body += MY_AUTH_PASS;
   body += "\",\"returnSecureToken\":true}";
 
+  Serial.print("Sending login request... ");
   int code = http.POST(body);
+  Serial.print("Response: ");
+  Serial.println(code);
   bool ok = false;
 
+  String resp = http.getString();
   if (code == 200) {
-    String resp = http.getString();
     int s = resp.indexOf("\"idToken\":\"") + 11;
     int e = resp.indexOf("\"", s);
     if (s > 10 && e > s) {
@@ -108,11 +111,7 @@ bool firebaseLogin() {
       ok = true;
     }
   } else {
-    Serial.print("Login error code: ");
-    Serial.println(code);
-    if (code > 0) {
-      Serial.println(http.getString());
-    }
+    Serial.println(resp);
   }
   http.end();
   return ok;
