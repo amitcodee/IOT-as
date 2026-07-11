@@ -68,13 +68,20 @@ String getTime2() {
 }
 
 String parseField(String json, String field) {
-  String search = "\"" + field + "\":{\"stringValue\":\"";
-  int start = json.indexOf(search);
-  if (start < 0) return "";
-  start += search.length();
-  int end = json.indexOf("\"", start);
-  if (end < 0) return "";
-  return json.substring(start, end);
+  // Find the field name
+  int fieldPos = json.indexOf("\"" + field + "\"");
+  if (fieldPos < 0) return "";
+  // Find "stringValue" after the field
+  int svPos = json.indexOf("stringValue", fieldPos);
+  if (svPos < 0) return "";
+  // Find the opening quote of the value
+  int valStart = json.indexOf("\"", svPos + 11);
+  if (valStart < 0) return "";
+  valStart++; // skip the quote
+  // Find the closing quote
+  int valEnd = json.indexOf("\"", valStart);
+  if (valEnd < 0) return "";
+  return json.substring(valStart, valEnd);
 }
 
 bool firebaseLogin() {
