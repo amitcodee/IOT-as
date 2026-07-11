@@ -90,8 +90,6 @@ function normalizeAttendanceRecord(record) {
     uid: record.uid,
     employeeId: record.employeeId,
     employeeName: record.employeeName,
-    department: record.department,
-    role: record.role,
     checkIn: record.checkIn || null,
     checkOut: record.checkOut || null,
   };
@@ -657,8 +655,6 @@ async function processScan(rawUid, source = "manual") {
       uid,
       employeeId: employee.employeeId,
       employeeName: employee.name,
-      department: employee.department,
-      role: employee.role,
       dateKey,
       checkIn: time,
       checkOut: null,
@@ -669,7 +665,6 @@ async function processScan(rawUid, source = "manual") {
       type: "CHECK_IN",
       employee: employee.name,
       employee_id: employee.employeeId,
-      department: employee.department,
       check_in: time,
       uid,
     };
