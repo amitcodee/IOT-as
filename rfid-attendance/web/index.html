@@ -3,67 +3,75 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>RFID Attendance Dashboard</title>
+  <title>TechCADD - Attendance System</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+
+  <!-- LOGIN -->
   <section id="loginView" class="login-screen">
     <div class="login-card glass-card">
       <div class="login-copy">
-        <p class="eyebrow">RFID attendance system</p>
-        <h1>Sign in to manage employees and live attendance.</h1>
+        <img src="logo.png" alt="TechCADD" class="login-logo" />
+        <p class="eyebrow">Attendance Management System</p>
+        <h1>Sign in to manage employees and attendance.</h1>
         <p class="hero-text">
-          Use your Firebase Auth account to access the dashboard, add employees, review today's attendance, and open full history by employee or date.
+          Track daily check-in, check-out, working hours, and employee attendance with RFID-based automation.
         </p>
       </div>
-
       <form id="loginForm" class="login-form">
         <label>
           <span>Email</span>
-          <input id="loginEmail" type="email" autocomplete="email" placeholder="admin@company.com" required />
+          <input id="loginEmail" type="email" autocomplete="email" placeholder="admin@techcadd.com" required />
         </label>
         <label>
           <span>Password</span>
           <input id="loginPassword" type="password" autocomplete="current-password" placeholder="••••••••" required />
         </label>
         <button class="primary-btn wide-btn" type="submit">Sign in</button>
-        <p id="loginHint" class="support-note">Firebase config loads from .env through the local server.</p>
+        <p id="loginHint" class="support-note"></p>
       </form>
     </div>
   </section>
 
+  <!-- APP SHELL -->
   <div id="appShell" class="app-shell hidden">
+
+    <!-- SIDEBAR -->
     <aside class="sidebar glass-card">
       <div>
-        <div class="brand-mark">RA</div>
-        <p class="eyebrow">RFID attendance</p>
-        <h2 id="sidebarTitle">Dashboard</h2>
+        <img src="logo.png" alt="TechCADD" class="sidebar-logo" />
+        <h2 id="sidebarTitle" style="margin-top:8px;">Dashboard</h2>
       </div>
-
       <nav class="sidebar-nav">
         <button class="nav-link is-active" data-view="dashboardView" type="button">Dashboard</button>
         <button class="nav-link" data-view="employeesView" type="button">Employees</button>
         <button class="nav-link" data-view="attendanceView" type="button">Attendance</button>
         <button class="nav-link" data-view="settingsView" type="button">Settings</button>
       </nav>
-
       <div class="sidebar-footer">
         <div>
-          <span class="sidebar-label">Signed in</span>
-          <strong id="currentUserLabel">Admin</strong>
+          <span class="sidebar-label">Signed in as</span>
+          <strong id="currentUserLabel" style="font-size:0.85rem;">Admin</strong>
         </div>
         <button id="signOutBtn" class="secondary-btn" type="button">Sign out</button>
       </div>
     </aside>
 
+    <!-- MAIN -->
     <main class="main-shell">
+
+      <!-- TOPBAR -->
       <header class="topbar glass-card">
-        <div>
-          <p class="eyebrow">RFID attendance dashboard</p>
-          <h1 id="topbarTitle">Dashboard</h1>
+        <div style="display:flex;align-items:center;gap:14px;">
+          <img src="logo.png" alt="TechCADD" class="topbar-logo" />
+          <div>
+            <p class="eyebrow">Attendance Management</p>
+            <h1 id="topbarTitle">Dashboard</h1>
+          </div>
         </div>
         <div class="topbar-status">
           <span class="status-pill" id="authStatusPill">Signed in</span>
@@ -71,69 +79,68 @@
         </div>
       </header>
 
+      <!-- DASHBOARD VIEW -->
       <section id="dashboardView" class="view is-active">
         <div class="metrics-grid">
           <article class="metric-card glass-card">
-            <span>Total employees</span>
+            <span>Total Employees</span>
             <strong id="metricEmployees">0</strong>
           </article>
           <article class="metric-card glass-card">
-            <span>Present today</span>
+            <span>Present Today</span>
             <strong id="metricPresent">0</strong>
           </article>
           <article class="metric-card glass-card">
-            <span>Checked out today</span>
+            <span>Checked Out</span>
             <strong id="metricCheckedOut">0</strong>
           </article>
           <article class="metric-card glass-card">
-            <span>Records today</span>
+            <span>Records Today</span>
             <strong id="metricLate">0</strong>
           </article>
         </div>
 
         <div class="content-grid dashboard-grid">
+          <!-- Scanner Panel -->
           <article class="panel glass-card">
             <div class="panel-head">
               <div>
                 <p class="panel-tag">Scanner</p>
-                <h2>Connect ESP32 and watch live output</h2>
+                <h2>Connect ESP32 Reader</h2>
               </div>
               <div class="inline-actions">
                 <button id="connectSerialBtn" class="mini-btn" type="button">Connect</button>
                 <button id="disconnectSerialBtn" class="mini-btn" type="button">Disconnect</button>
-                <button id="demoScanBtn" class="mini-btn" type="button">Demo scan</button>
+                <button id="demoScanBtn" class="mini-btn" type="button">Demo</button>
               </div>
             </div>
-
             <div class="scan-tools">
-              <input id="manualUidInput" placeholder="Type or paste UID like 82510704" />
-              <button id="scanFromInputBtn" class="primary-btn" type="button">Process scan</button>
+              <input id="manualUidInput" placeholder="Type or paste UID" />
+              <button id="scanFromInputBtn" class="primary-btn" type="button">Scan</button>
             </div>
-
             <div class="status-row">
               <span class="status-pill" id="serialBadge">Disconnected</span>
               <span class="status-pill accent" id="syncBadge">Local demo</span>
             </div>
-
             <pre id="liveOutput" class="json-output">{
   "status": "info",
   "message": "Sign in to manage data"
 }</pre>
-
             <div class="feed-block">
               <div class="feed-head">
-                <span>Recent scan feed</span>
+                <span style="font-weight:600;">Recent Scans</span>
                 <span id="serialHint" class="status-label">Waiting for reader</span>
               </div>
               <div id="scanFeed" class="feed-list"></div>
             </div>
           </article>
 
+          <!-- Today Attendance Panel -->
           <article class="panel glass-card">
             <div class="panel-head">
               <div>
-                <p class="panel-tag">Today attendance</p>
-                <h2>Check-in and check-out records for today</h2>
+                <p class="panel-tag">Today</p>
+                <h2>Today's Attendance</h2>
               </div>
             </div>
             <div class="table-wrap tall-table">
@@ -143,8 +150,8 @@
                     <th>Date</th>
                     <th>Name</th>
                     <th>UID</th>
-                    <th>Check in</th>
-                    <th>Check out</th>
+                    <th>Check In</th>
+                    <th>Check Out</th>
                     <th>Hours</th>
                     <th>Status</th>
                   </tr>
@@ -156,20 +163,20 @@
         </div>
       </section>
 
+      <!-- EMPLOYEES VIEW -->
       <section id="employeesView" class="view">
         <div class="content-grid two-col-grid">
           <article class="panel glass-card">
             <div class="panel-head">
               <div>
-                <p class="panel-tag">Add employee</p>
-                <h2>Assign a UID and store the employee profile</h2>
+                <p class="panel-tag">Add / Edit Employee</p>
+                <h2>Assign UID and store profile</h2>
               </div>
             </div>
-
             <form id="employeeForm" class="form-grid">
               <label>
                 <span>UID</span>
-                <input id="employeeUid" placeholder="Tap Scan Card, then scan one" required />
+                <input id="employeeUid" placeholder="Scan card or type UID" required />
               </label>
               <label>
                 <span>Employee ID</span>
@@ -192,17 +199,17 @@
                 <input id="employeePhone" placeholder="+91 9876543210" />
               </label>
               <div class="scan-serial-row">
-                <button id="connectEmployeeSerialBtn" class="mini-btn" type="button">Connect reader</button>
-                <button id="disconnectEmployeeSerialBtn" class="mini-btn" type="button">Disconnect reader</button>
+                <button id="connectEmployeeSerialBtn" class="mini-btn" type="button">Connect Reader</button>
+                <button id="disconnectEmployeeSerialBtn" class="mini-btn" type="button">Disconnect</button>
                 <span id="employeeSerialStatus" class="scan-hint">Reader disconnected</span>
               </div>
               <div class="scan-assign-row">
-                <button id="scanEmployeeUidBtn" class="mini-btn" type="button">Scan card to assign UID</button>
-                <span id="scanEmployeeUidHint" class="scan-hint">Ready to capture a UID</span>
+                <button id="scanEmployeeUidBtn" class="mini-btn" type="button">Scan Card to Assign UID</button>
+                <span id="scanEmployeeUidHint" class="scan-hint">Ready to capture</span>
               </div>
               <div class="form-actions">
-                <button class="primary-btn" type="submit">Save employee</button>
-                <button id="clearEmployeeFormBtn" class="secondary-btn" type="button">Clear form</button>
+                <button class="primary-btn" type="submit">Save Employee</button>
+                <button id="clearEmployeeFormBtn" class="secondary-btn" type="button">Clear</button>
               </div>
             </form>
           </article>
@@ -210,12 +217,11 @@
           <article class="panel glass-card">
             <div class="panel-head">
               <div>
-                <p class="panel-tag">Manage employee</p>
-                <h2>Open employee detail and attendance history</h2>
+                <p class="panel-tag">Employee Directory</p>
+                <h2>Manage employees and view attendance</h2>
               </div>
               <input id="employeeSearchInput" class="table-search" placeholder="Search name, UID or department" />
             </div>
-
             <div class="table-wrap tall-table">
               <table>
                 <thead>
@@ -235,21 +241,21 @@
         </div>
       </section>
 
+      <!-- ATTENDANCE VIEW -->
       <section id="attendanceView" class="view">
         <article class="panel glass-card">
           <div class="panel-head">
             <div>
-              <p class="panel-tag">Attendance history</p>
-              <h2>Full attendance records by date</h2>
+              <p class="panel-tag">Attendance History</p>
+              <h2>All attendance records</h2>
             </div>
             <div class="inline-actions wrap-actions">
               <input id="attendanceFromInput" class="date-input" type="date" />
               <input id="attendanceToInput" class="date-input" type="date" />
               <input id="attendanceSearchInput" class="table-search" placeholder="Search name, UID or date" />
-              <button id="clearAttendanceFiltersBtn" class="secondary-btn" type="button">Clear filters</button>
+              <button id="clearAttendanceFiltersBtn" class="secondary-btn" type="button">Clear</button>
             </div>
           </div>
-
           <div class="table-wrap tall-table">
             <table>
               <thead>
@@ -257,8 +263,8 @@
                   <th>Date</th>
                   <th>Name</th>
                   <th>UID</th>
-                  <th>Check in</th>
-                  <th>Check out</th>
+                  <th>Check In</th>
+                  <th>Check Out</th>
                   <th>Hours</th>
                   <th>Status</th>
                 </tr>
@@ -269,49 +275,71 @@
         </article>
       </section>
 
+      <!-- SETTINGS VIEW -->
       <section id="settingsView" class="view">
         <article class="panel glass-card settings-panel">
           <div>
-            <p class="panel-tag">Environment</p>
-            <h2>Standard .env-based setup</h2>
-            <p class="support-note">
-              The local server reads Firebase credentials from .env and exposes them to the app through /config.js.
-            </p>
+            <p class="panel-tag">Settings</p>
+            <h2>System Configuration</h2>
           </div>
-
           <div class="settings-grid">
             <div class="setting-card">
-              <span>App name</span>
-              <strong id="settingAppName">RFID Attendance</strong>
+              <span>App Name</span>
+              <strong id="settingAppName">TechCADD Attendance</strong>
             </div>
             <div class="setting-card">
-              <span>Firebase project</span>
-              <strong id="settingProjectId">Not configured</strong>
+              <span>Project</span>
+              <strong id="settingProjectId">-</strong>
             </div>
             <div class="setting-card">
               <span>Auth</span>
-              <strong>Firebase Email/Password</strong>
+              <strong>Email / Password</strong>
             </div>
             <div class="setting-card">
               <span>Session</span>
-              <strong>Browser persistence</strong>
+              <strong>Browser Persistence</strong>
             </div>
           </div>
+        </article>
 
+        <article class="panel glass-card settings-panel">
+          <div>
+            <p class="panel-tag">Update Password</p>
+            <h2>Change your account password</h2>
+          </div>
+          <div class="form-grid" style="margin-top:12px;">
+            <label>
+              <span>New Password</span>
+              <input id="settingNewPassword" type="password" placeholder="Enter new password" />
+            </label>
+            <label>
+              <span>Confirm Password</span>
+              <input id="settingConfirmPassword" type="password" placeholder="Confirm new password" />
+            </label>
+          </div>
+          <div class="settings-actions" style="margin-top:12px;">
+            <button id="updatePasswordBtn" class="primary-btn" type="button">Update Password</button>
+          </div>
+          <p id="passwordHint" class="support-note" style="margin-top:8px;"></p>
+        </article>
+
+        <article class="panel glass-card settings-panel">
           <div class="settings-actions">
-            <button id="sampleDataBtn" class="primary-btn" type="button">Load sample employees</button>
-            <button id="signOutBtnSecondary" class="secondary-btn" type="button">Sign out</button>
+            <button id="sampleDataBtn" class="primary-btn" type="button">Load Sample Employees</button>
+            <button id="signOutBtnSecondary" class="secondary-btn" type="button">Sign Out</button>
           </div>
         </article>
       </section>
+
     </main>
   </div>
 
+  <!-- EMPLOYEE DRAWER -->
   <div id="drawerBackdrop" class="drawer-backdrop hidden"></div>
   <aside id="employeeDrawer" class="drawer hidden glass-card">
     <div class="drawer-head">
       <div>
-        <p class="panel-tag">Employee detail</p>
+        <p class="panel-tag">Employee Profile</p>
         <h2 id="drawerEmployeeName">Select an employee</h2>
       </div>
       <button id="closeDrawerBtn" class="mini-btn" type="button">Close</button>
@@ -319,19 +347,37 @@
 
     <div class="drawer-summary" id="drawerSummary"></div>
 
+    <!-- Remark Section -->
+    <div class="drawer-section-title">Remarks</div>
+    <div class="drawer-remark-section">
+      <div class="remark-form">
+        <div class="remark-row">
+          <input id="drawerRemarkDate" type="date" style="width:auto;min-width:140px;" />
+          <input id="drawerRemarkInput" placeholder="e.g. Going to seminar, On leave, Client visit..." style="flex:1;" />
+          <button id="drawerAddRemarkBtn" class="primary-btn" type="button">Add</button>
+        </div>
+      </div>
+      <div id="drawerRemarkList" class="remark-list"></div>
+    </div>
+
+    <!-- Attendance Section -->
+    <div class="drawer-section-title">Attendance History</div>
     <div class="drawer-filters">
+      <select id="drawerMonthSelect"></select>
       <input id="drawerFromInput" type="date" />
       <input id="drawerToInput" type="date" />
       <button id="drawerClearFiltersBtn" class="secondary-btn" type="button">Clear</button>
     </div>
+
+    <div id="drawerMonthSummary" class="month-summary"></div>
 
     <div class="table-wrap drawer-table-wrap">
       <table>
         <thead>
           <tr>
             <th>Date</th>
-            <th>Check in</th>
-            <th>Check out</th>
+            <th>Check In</th>
+            <th>Check Out</th>
             <th>Hours</th>
             <th>Status</th>
           </tr>
