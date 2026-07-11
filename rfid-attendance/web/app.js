@@ -66,6 +66,20 @@ function calcHours(checkIn, checkOut) {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
+function calcStatus(record) {
+  if (!record.checkIn) return "Absent";
+  if (record.checkIn && !record.checkOut) return "Present";
+  if (record.checkIn && record.checkOut) return "Checked Out";
+  return "-";
+}
+
+function statusPillClass(status) {
+  if (status === "Present") return "info";
+  if (status === "Checked Out") return "done";
+  if (status === "Absent") return "error";
+  return "";
+}
+
 function normalizeAttendanceRecord(record) {
   if (!record) {
     return null;
@@ -383,6 +397,8 @@ function renderMetrics() {
 
 function attendanceRow(record) {
   const hours = record.checkIn && record.checkOut ? calcHours(record.checkIn, record.checkOut) : "-";
+  const status = calcStatus(record);
+  const pillClass = statusPillClass(status);
   return `
     <tr>
       <td>${record.dateKey || "-"}</td>
@@ -391,6 +407,7 @@ function attendanceRow(record) {
       <td>${record.checkIn || "-"}</td>
       <td>${record.checkOut || "-"}</td>
       <td>${hours}</td>
+      <td><span class="pill ${pillClass}">${status}</span></td>
     </tr>
   `;
 }
@@ -401,7 +418,7 @@ function renderTodayAttendance() {
     .filter((record) => record.dateKey === today)
     .map((record) => attendanceRow(record))
     .join("");
-  elements.todayAttendanceBody.innerHTML = rows || '<tr><td colspan="6" class="empty-state">No attendance records for today.</td></tr>';
+  elements.todayAttendanceBody.innerHTML = rows || '<tr><td colspan="7" class="empty-state">No attendance records for today.</td></tr>';
 }
 
 function employeeRow(employee) {
@@ -451,41 +468,7 @@ function renderAttendanceTable() {
     ["dateKey", "employeeName", "uid"],
   );
 
-  elements.attendanceTableBody.innerHTML = filtered.map((record) => attendanceRow(record)).join("") || '<tr><td colspan="5" class="empty-state">No attendance records match the filters.</td></tr>';
-}
-
-function renderDrawer() {
-  const employee = state.employees.find((item) => item.uid === state.selectedEmployeeUid);
-  if (!employee) {
-    elements.drawerEmployeeName.textContent = "Select an employee";
-    elements.drawerSummary.innerHTML = '<div class="empty-state">Choose an employee to view the full attendance history.</div>';
-    elements.drawerAttendanceBody.innerHTML = '<tr><td colspan="5" class="empty-state">No employee selected.</td></tr>';
-    return;
-  }
-
-  elements.drawerEmployeeName.textContent = employee.name;
-  elements.drawerSummary.innerHTML = `
-    <div class="setting-card"><span>UID</span><strong>${employee.uid}</strong></div>
-    <div class="setting-card"><span>Employee ID</span><strong>${employee.employeeId}</strong></div>
-    <div class="setting-card"><span>Department</span><strong>${employee.department}</strong></div>
-    <div class="setting-card"><span>Role</span><strong>${employee.role}</strong></div>
-    <div class="setting-card"><span>Phone</span><strong>${employee.phone || "-"}</strong></div>
-  `;
-
-  const rows = state.attendance
-    .filter((record) => record.uid === employee.uid)
-    .filter((record) => isWithinDateRange(record.dateKey, state.drawerFrom, state.drawerTo))
-    .map((record) => `
-      <tr>
-        <td>${record.dateKey}</td>
-        <td>${record.checkIn || "-"}</td>
-        <td>${record.checkOut || "-"}</td>
-        <td>${record.checkIn && record.checkOut ? calcHours(record.checkIn, record.checkOut) : "-"}</td>
-      </tr>
-    `)
-    .join("");
-
-  elements.drawerAttendanceBody.innerHTML = rows || '<tr><td colspan="4" class="empty-state">No attendance history for this employee.</td></tr>';
+  elements.attendanceTableBody.innerHTML = filtered.map((record) => attendanceRow(record)).join("") || '<tr><td colspan="7" class="empty-state">No attendance records match the filters.</td></tr>';
 }
 
 function renderScanFeed() {
@@ -917,14 +900,20 @@ function renderDrawer() {
   const rows = state.attendance
     .filter((record) => record.uid === employee.uid)
     .filter((record) => isWithinDateRange(record.dateKey, state.drawerFrom, state.drawerTo))
-    .map((record) => `
+    .map((record) => {
+      const hours = record.checkIn && record.checkOut ? calcHours(record.checkIn, record.checkOut) : "-";
+      const status = calcStatus(record);
+      const pillClass = statusPillClass(status);
+      return `
       <tr>
         <td>${record.dateKey}</td>
         <td>${record.checkIn || "-"}</td>
         <td>${record.checkOut || "-"}</td>
-        <td>${record.checkIn && record.checkOut ? calcHours(record.checkIn, record.checkOut) : "-"}</td>
+        <td>${hours}</td>
+        <td><span class="pill ${pillClass}">${status}</span></td>
       </tr>
-    `)
+    `;
+    })
     .join("");
 
   elements.drawerAttendanceBody.innerHTML = rows || '<tr><td colspan="5" class="empty-state">No attendance history for this employee.</td></tr>';
