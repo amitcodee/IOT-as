@@ -101,6 +101,16 @@ function normalizeAttendanceRecord(record) {
   };
 }
 
+function getEmployeeName(uid) {
+  const emp = state.employees.find((e) => e.uid === uid);
+  return emp ? emp.name : uid;
+}
+
+function getEmployeeId(uid) {
+  const emp = state.employees.find((e) => e.uid === uid);
+  return emp ? emp.employeeId : "";
+}
+
 function formatJson(value) {
   return JSON.stringify(value, null, 2);
 }
@@ -360,7 +370,7 @@ function attendanceRow(record) {
   const pillClass = statusPillClass(status);
   return `<tr>
     <td>${record.dateKey || "-"}</td>
-    <td>${record.employeeName}</td>
+    <td>${record.employeeName || getEmployeeName(record.uid)}</td>
     <td>${record.uid}</td>
     <td>${record.checkIn || "-"}</td>
     <td>${record.checkOut || "-"}</td>
@@ -601,11 +611,25 @@ async function deleteEmployee(uid) {
   if (!state.db) {
     state.employees = state.employees.filter((e) => e.uid !== uid);
     state.attendance = state.attendance.filter((e) => e.uid !== uid);
+    state.remarks = state.remarks.filter((e) => e.uid !== uid);
     renderAll();
     return;
   }
   try {
+    // Delete employee
     await state.db.collection("employees").doc(uid).delete();
+
+    // Delete all attendance for this employee
+    const attSnap = await state.db.collection("attendance").where("uid", "==", uid).get();
+    const attBatch = state.db.batch();
+    attSnap.forEach((doc) => attBatch.delete(doc.ref));
+    if (!attSnap.empty) await attBatch.commit();
+
+    // Delete all remarks for this employee
+    const remSnap = await state.db.collection("remarks").where("uid", "==", uid).get();
+    const remBatch = state.db.batch();
+    remSnap.forEach((doc) => remBatch.delete(doc.ref));
+    if (!remSnap.empty) await remBatch.commit();
   } catch (error) {
     handleFirestoreError(error);
     throw error;

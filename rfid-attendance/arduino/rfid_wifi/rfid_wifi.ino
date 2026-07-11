@@ -74,14 +74,16 @@ String parseField(String json, String field) {
   // Find "stringValue" after the field
   int svPos = json.indexOf("stringValue", fieldPos);
   if (svPos < 0) return "";
-  // Find the opening quote of the value
-  int valStart = json.indexOf("\"", svPos + 11);
-  if (valStart < 0) return "";
-  valStart++; // skip the quote
-  // Find the closing quote
-  int valEnd = json.indexOf("\"", valStart);
-  if (valEnd < 0) return "";
-  return json.substring(valStart, valEnd);
+  // Find first quote after "stringValue"
+  int q1 = json.indexOf("\"", svPos + 11);
+  if (q1 < 0) return "";
+  // Find second quote (this starts the actual value)
+  int q2 = json.indexOf("\"", q1 + 1);
+  if (q2 < 0) return "";
+  // Find third quote (this ends the value)
+  int q3 = json.indexOf("\"", q2 + 1);
+  if (q3 < 0) return "";
+  return json.substring(q2 + 1, q3);
 }
 
 bool firebaseLogin() {
@@ -217,43 +219,32 @@ void processScan(String uid) {
     return;
   }
 
+  // Check if employee exists (just check HTTP 200, don't parse)
   String empResp;
   int empCode = fsGet("employees/" + uid, empResp);
   if (empCode != 200) {
-    Serial.println("UNKNOWN CARD");
+    Serial.println("UNKNOWN CARD: " + uid);
     blinkLed(5, 80);
     return;
   }
+  Serial.println("Employee found");
 
-  // Debug: print first 500 chars of employee response
-  Serial.println("Employee data:");
-  Serial.println(empResp.substring(0, min((int)empResp.length(), 500)));
-
-  String empName = parseField(empResp, "name");
-  String empId = parseField(empResp, "employeeId");
-  Serial.print("Parsed name: [");
-  Serial.print(empName);
-  Serial.print("] id: [");
-  Serial.print(empId);
-  Serial.println("]");
-  if (empName == "") empName = "Unknown";
-
+  // Check today's attendance
   String docId = dateKey + "_" + uid;
   String attResp;
   int attCode = fsGet("attendance/" + docId, attResp);
 
   if (attCode != 200) {
+    // No record → CHECK IN (only save uid, dateKey, checkIn)
     String body = "{\"fields\":{";
     body += "\"uid\":{\"stringValue\":\"" + uid + "\"},";
-    body += "\"employeeId\":{\"stringValue\":\"" + empId + "\"},";
-    body += "\"employeeName\":{\"stringValue\":\"" + empName + "\"},";
     body += "\"dateKey\":{\"stringValue\":\"" + dateKey + "\"},";
     body += "\"checkIn\":{\"stringValue\":\"" + timeStr + "\"},";
     body += "\"checkOut\":{\"nullValue\":null}";
     body += "}}";
 
     if (fsPatch("attendance/" + docId, body)) {
-      Serial.println("CHECK IN: " + empName + " at " + timeStr);
+      Serial.println("CHECK IN: " + uid + " at " + timeStr);
       blinkLed(1, 200);
     } else {
       Serial.println("Write failed");
@@ -262,15 +253,18 @@ void processScan(String uid) {
     return;
   }
 
-  bool hasCheckOut = (attResp.indexOf("\"checkOut\":{\"stringValue\"") > 0);
+  // Record exists — check if checkOut is null
+  bool hasCheckOut = attResp.indexOf("\"checkOut\"") > 0 &&
+                     attResp.indexOf("\"nullValue\"", attResp.indexOf("\"checkOut\"")) < 0;
 
   if (!hasCheckOut) {
+    // CHECK OUT
     String body = "{\"fields\":{";
     body += "\"checkOut\":{\"stringValue\":\"" + timeStr + "\"}";
     body += "}}";
 
     if (fsPatchField("attendance/" + docId, body, "checkOut")) {
-      Serial.println("CHECK OUT: " + empName + " at " + timeStr);
+      Serial.println("CHECK OUT: " + uid + " at " + timeStr);
       blinkLed(2, 150);
     } else {
       Serial.println("Update failed");
@@ -279,7 +273,7 @@ void processScan(String uid) {
     return;
   }
 
-  Serial.println("ALREADY DONE: " + empName);
+  Serial.println("ALREADY DONE: " + uid);
   blinkLed(3, 300);
 }
 
