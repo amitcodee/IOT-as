@@ -70,70 +70,60 @@ WARNING: Use 3.3V NOT 5V. The RC522 runs on 3.3V.
 
 ---
 
-## STEP 3: INSTALL PYTHON PACKAGE
+## STEP 3: CONFIGURE THE WEB APP
 
-Open terminal (cmd) and run:
-
-```
-pip install pyserial
-```
-
----
-
-## STEP 4: RUN THE PYTHON SCRIPT
-
-```
-cd C:\Users\pandi\OneDrive\Desktop\new\rfid-attendance
-python test.py
-```
-
-You will see:
-
-```
-==================================================
-  RFID Attendance System
-  Hardware: ESP32 + RC522
-==================================================
-
-  [1] Connect to ESP32 (scan real cards)
-  [2] Manual mode (type UIDs to test)
-
-  Choose (1 or 2):
-```
+1. Copy `.env.example` to `.env`.
+2. Fill in your Firebase web config values in `.env`.
+3. Make sure Firebase Email/Password sign-in is enabled in the Firebase console.
+4. Create at least one Firebase Auth user for logging in.
 
 ---
 
-## STEP 5: SCAN CARDS
+## STEP 4: START THE DASHBOARD
 
-### Option 1 - Real Hardware
+Run the local server from the workspace root or from the `rfid-attendance` folder:
 
-1. Choose `1`
-2. It shows available COM ports. Select your ESP32 port number.
-3. It says "ESP32 is ready!" and "SCAN A CARD ON THE READER"
-4. Hold your RFID card on the RC522 reader
-5. JSON appears in terminal:
-
-```json
-{
-    "status": "success",
-    "type": "CHECK_IN",
-    "employee": "John Smith",
-    "employee_id": "EMP001",
-    "department": "Engineering",
-    "check_in": "09:05:23",
-    "attendance_status": "Present"
-}
+```bash
+npm start
 ```
 
-6. Scan same card again = CHECK OUT
-7. Scan same card third time = ALREADY DONE
-8. Press Ctrl+C to stop
+If you are already inside `rfid-attendance`, this also works:
 
-### Option 2 - Manual Mode (No Hardware)
+```bash
+node server.mjs
+```
 
-1. Choose `2`
-2. Type a UID and press Enter
-3. Sample UIDs: `A1B2C3D4`, `E5F6G7H8`, `I9J0K1L2`
+Then open:
+
+```text
+http://localhost:3000
+```
+
+The login screen appears first. After sign-in, you will see:
+
+1. Dashboard with metrics and today attendance.
+2. Employees with add, view, edit, and delete actions.
+3. Attendance with full date-based history.
+4. Settings with the active `.env` project info.
+
+---
+
+## STEP 5: CONNECT THE ESP32 READER
+
+1. In the Dashboard section, click `Connect`.
+2. Pick the ESP32 COM port.
+3. Hold a card near the reader.
+4. The live output panel updates with check-in and check-out JSON.
+
+The scanner works in Chrome or Edge on localhost because it uses the Web Serial API.
+
+---
+
+## STEP 6: PYTHON IS TEMPORARY
+
+The `test.py` script is still in the project for now as a fallback bridge, but the browser app is the main path.
+
+If you want to keep using the Python terminal tool for the moment, it still supports manual mode and serial reading. You can remove it later once the browser flow is fully verified.
 
 ---
 
@@ -149,10 +139,10 @@ ESP32 reads UID from card
 ESP32 sends "UID:A1B2C3D4" over USB serial
       |
       v
-Python reads it from COM port
+Browser reads it from the Web Serial API
       |
       v
-Python checks: is this UID registered?
+Dashboard checks: is this UID registered?
       |
   NO -+-> Shows "UNKNOWN CARD" JSON
       |
@@ -173,10 +163,13 @@ Python checks: is this UID registered?
 
 ```
 rfid-attendance/
-  arduino/
-    rfid_scanner.ino   <- Upload this to ESP32
-  test.py              <- Run this on your computer
-  run.md               <- You are reading this
+   arduino/
+      rfid_scanner.ino   <- Upload this to ESP32
+   web/                 <- Login, dashboard, employees, attendance
+   server.mjs           <- Local server that reads .env and serves the app
+   .env.example         <- Copy to .env and fill in Firebase credentials
+   test.py              <- Temporary fallback bridge
+   run.md               <- You are reading this
 ```
 
 ---

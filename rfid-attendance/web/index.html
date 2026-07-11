@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RFID Attendance Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <section id="loginView" class="login-screen">
+    <div class="login-card glass-card">
+      <div class="login-copy">
+        <p class="eyebrow">RFID attendance system</p>
+        <h1>Sign in to manage employees and live attendance.</h1>
+        <p class="hero-text">
+          Use your Firebase Auth account to access the dashboard, add employees, review today's attendance, and open full history by employee or date.
+        </p>
+      </div>
+
+      <form id="loginForm" class="login-form">
+        <label>
+          <span>Email</span>
+          <input id="loginEmail" type="email" autocomplete="email" placeholder="admin@company.com" required />
+        </label>
+        <label>
+          <span>Password</span>
+          <input id="loginPassword" type="password" autocomplete="current-password" placeholder="••••••••" required />
+        </label>
+        <button class="primary-btn wide-btn" type="submit">Sign in</button>
+        <p id="loginHint" class="support-note">Firebase config loads from .env through the local server.</p>
+      </form>
+    </div>
+  </section>
+
+  <div id="appShell" class="app-shell hidden">
+    <aside class="sidebar glass-card">
+      <div>
+        <div class="brand-mark">RA</div>
+        <p class="eyebrow">RFID attendance</p>
+        <h2 id="sidebarTitle">Dashboard</h2>
+      </div>
+
+      <nav class="sidebar-nav">
+        <button class="nav-link is-active" data-view="dashboardView" type="button">Dashboard</button>
+        <button class="nav-link" data-view="employeesView" type="button">Employees</button>
+        <button class="nav-link" data-view="attendanceView" type="button">Attendance</button>
+        <button class="nav-link" data-view="settingsView" type="button">Settings</button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div>
+          <span class="sidebar-label">Signed in</span>
+          <strong id="currentUserLabel">Admin</strong>
+        </div>
+        <button id="signOutBtn" class="secondary-btn" type="button">Sign out</button>
+      </div>
+    </aside>
+
+    <main class="main-shell">
+      <header class="topbar glass-card">
+        <div>
+          <p class="eyebrow">RFID attendance dashboard</p>
+          <h1 id="topbarTitle">Dashboard</h1>
+        </div>
+        <div class="topbar-status">
+          <span class="status-pill" id="authStatusPill">Signed in</span>
+          <span class="status-pill accent" id="syncStatusPill">Local</span>
+        </div>
+      </header>
+
+      <section id="dashboardView" class="view is-active">
+        <div class="metrics-grid">
+          <article class="metric-card glass-card">
+            <span>Total employees</span>
+            <strong id="metricEmployees">0</strong>
+          </article>
+          <article class="metric-card glass-card">
+            <span>Present today</span>
+            <strong id="metricPresent">0</strong>
+          </article>
+          <article class="metric-card glass-card">
+            <span>Checked out today</span>
+            <strong id="metricCheckedOut">0</strong>
+          </article>
+          <article class="metric-card glass-card">
+            <span>Late today</span>
+            <strong id="metricLate">0</strong>
+          </article>
+        </div>
+
+        <div class="content-grid dashboard-grid">
+          <article class="panel glass-card">
+            <div class="panel-head">
+              <div>
+                <p class="panel-tag">Scanner</p>
+                <h2>Connect ESP32 and watch live output</h2>
+              </div>
+              <div class="inline-actions">
+                <button id="connectSerialBtn" class="mini-btn" type="button">Connect</button>
+                <button id="disconnectSerialBtn" class="mini-btn" type="button">Disconnect</button>
+                <button id="demoScanBtn" class="mini-btn" type="button">Demo scan</button>
+              </div>
+            </div>
+
+            <div class="scan-tools">
+              <input id="manualUidInput" placeholder="Type or paste UID like 82510704" />
+              <button id="scanFromInputBtn" class="primary-btn" type="button">Process scan</button>
+            </div>
+
+            <div class="status-row">
+              <span class="status-pill" id="serialBadge">Disconnected</span>
+              <span class="status-pill accent" id="syncBadge">Local demo</span>
+            </div>
+
+            <pre id="liveOutput" class="json-output">{
+  "status": "info",
+  "message": "Sign in to manage data"
+}</pre>
+
+            <div class="feed-block">
+              <div class="feed-head">
+                <span>Recent scan feed</span>
+                <span id="serialHint" class="status-label">Waiting for reader</span>
+              </div>
+              <div id="scanFeed" class="feed-list"></div>
+            </div>
+          </article>
+
+          <article class="panel glass-card">
+            <div class="panel-head">
+              <div>
+                <p class="panel-tag">Today attendance</p>
+                <h2>Check-in and check-out records for today</h2>
+              </div>
+            </div>
+            <div class="table-wrap tall-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>UID</th>
+                    <th>Check in</th>
+                    <th>Check out</th>
+                    <th>Hours</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody id="todayAttendanceBody"></tbody>
+              </table>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section id="employeesView" class="view">
+        <div class="content-grid two-col-grid">
+          <article class="panel glass-card">
+            <div class="panel-head">
+              <div>
+                <p class="panel-tag">Add employee</p>
+                <h2>Assign a UID and store the employee profile</h2>
+              </div>
+            </div>
+
+            <form id="employeeForm" class="form-grid">
+              <label>
+                <span>UID</span>
+                <input id="employeeUid" placeholder="A1B2C3D4" required />
+              </label>
+              <label>
+                <span>Employee ID</span>
+                <input id="employeeId" placeholder="EMP004" required />
+              </label>
+              <label>
+                <span>Name</span>
+                <input id="employeeName" placeholder="Aarav Patel" required />
+              </label>
+              <label>
+                <span>Department</span>
+                <input id="employeeDepartment" placeholder="Operations" required />
+              </label>
+              <label>
+                <span>Role</span>
+                <input id="employeeRole" placeholder="Manager" required />
+              </label>
+              <label>
+                <span>Phone</span>
+                <input id="employeePhone" placeholder="+91 9876543210" />
+              </label>
+              <div class="form-actions">
+                <button class="primary-btn" type="submit">Save employee</button>
+                <button id="clearEmployeeFormBtn" class="secondary-btn" type="button">Clear form</button>
+              </div>
+            </form>
+          </article>
+
+          <article class="panel glass-card">
+            <div class="panel-head">
+              <div>
+                <p class="panel-tag">Manage employee</p>
+                <h2>Open employee detail and attendance history</h2>
+              </div>
+              <input id="employeeSearchInput" class="table-search" placeholder="Search name, UID or department" />
+            </div>
+
+            <div class="table-wrap tall-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>UID</th>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>Department</th>
+                    <th>Role</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="employeeTableBody"></tbody>
+              </table>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section id="attendanceView" class="view">
+        <article class="panel glass-card">
+          <div class="panel-head">
+            <div>
+              <p class="panel-tag">Attendance history</p>
+              <h2>Full attendance records by date</h2>
+            </div>
+            <div class="inline-actions wrap-actions">
+              <input id="attendanceFromInput" class="date-input" type="date" />
+              <input id="attendanceToInput" class="date-input" type="date" />
+              <input id="attendanceSearchInput" class="table-search" placeholder="Search name, UID or status" />
+              <button id="clearAttendanceFiltersBtn" class="secondary-btn" type="button">Clear filters</button>
+            </div>
+          </div>
+
+          <div class="table-wrap tall-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Name</th>
+                  <th>UID</th>
+                  <th>Check in</th>
+                  <th>Check out</th>
+                  <th>Hours</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="attendanceTableBody"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section id="settingsView" class="view">
+        <article class="panel glass-card settings-panel">
+          <div>
+            <p class="panel-tag">Environment</p>
+            <h2>Standard .env-based setup</h2>
+            <p class="support-note">
+              The local server reads Firebase credentials from .env and exposes them to the app through /config.js.
+            </p>
+          </div>
+
+          <div class="settings-grid">
+            <div class="setting-card">
+              <span>App name</span>
+              <strong id="settingAppName">RFID Attendance</strong>
+            </div>
+            <div class="setting-card">
+              <span>Firebase project</span>
+              <strong id="settingProjectId">Not configured</strong>
+            </div>
+            <div class="setting-card">
+              <span>Auth</span>
+              <strong>Firebase Email/Password</strong>
+            </div>
+            <div class="setting-card">
+              <span>Session</span>
+              <strong>Browser persistence</strong>
+            </div>
+          </div>
+
+          <div class="settings-actions">
+            <button id="sampleDataBtn" class="primary-btn" type="button">Load sample employees</button>
+            <button id="signOutBtnSecondary" class="secondary-btn" type="button">Sign out</button>
+          </div>
+        </article>
+      </section>
+    </main>
+  </div>
+
+  <div id="drawerBackdrop" class="drawer-backdrop hidden"></div>
+  <aside id="employeeDrawer" class="drawer hidden glass-card">
+    <div class="drawer-head">
+      <div>
+        <p class="panel-tag">Employee detail</p>
+        <h2 id="drawerEmployeeName">Select an employee</h2>
+      </div>
+      <button id="closeDrawerBtn" class="mini-btn" type="button">Close</button>
+    </div>
+
+    <div class="drawer-summary" id="drawerSummary"></div>
+
+    <div class="drawer-filters">
+      <input id="drawerFromInput" type="date" />
+      <input id="drawerToInput" type="date" />
+      <button id="drawerClearFiltersBtn" class="secondary-btn" type="button">Clear</button>
+    </div>
+
+    <div class="table-wrap drawer-table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Check in</th>
+            <th>Check out</th>
+            <th>Hours</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="drawerAttendanceBody"></tbody>
+      </table>
+    </div>
+  </aside>
+
+  <script src="/config.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

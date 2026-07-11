@@ -1,0 +1,10 @@
+{
+  "name": "iot-as-workspace",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node rfid-attendance/server.mjs",
+    "dev": "node rfid-attendance/server.mjs"
+  }
+}
