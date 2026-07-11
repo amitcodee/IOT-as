@@ -439,11 +439,62 @@ h2 {
 }
 
 /* Scanner */
+.scanner-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.scanner-status-block {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  border: 1px solid var(--panel-border);
+}
+
+.scanner-indicator {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.scanner-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--danger);
+  flex-shrink: 0;
+}
+
+.scanner-dot.connected {
+  background: var(--success);
+  box-shadow: 0 0 8px rgba(5, 150, 105, 0.4);
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { box-shadow: 0 0 4px rgba(5, 150, 105, 0.3); }
+  50% { box-shadow: 0 0 12px rgba(5, 150, 105, 0.6); }
+}
+
+.scanner-status-text {
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.scanner-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .scan-tools {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 8px;
-  margin-top: 14px;
 }
 
 .status-row {

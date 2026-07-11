@@ -130,7 +130,7 @@ function cacheElements() {
     "metricEmployees", "metricPresent", "metricCheckedOut", "metricLate",
     "connectSerialBtn", "disconnectSerialBtn", "demoScanBtn",
     "manualUidInput", "scanFromInputBtn",
-    "serialBadge", "syncBadge", "serialHint", "liveOutput", "scanFeed",
+    "serialBadge", "syncBadge", "serialHint", "scannerDot", "liveOutput", "scanFeed",
     "todayAttendanceBody",
     "employeeForm", "employeeUid", "employeeId", "employeeName",
     "employeeDepartment", "employeeRole", "employeePhone",
@@ -200,10 +200,14 @@ function showApp() {
 }
 
 function renderStatusBadges() {
-  elements.serialBadge.textContent = state.serialStatus;
+  const isConnected = state.serialStatus === "Connected" || state.serialStatus === "Reader ready";
+  elements.serialBadge.textContent = isConnected ? "Connected" : "Disconnected";
   elements.syncBadge.textContent = state.syncStatus;
-  elements.syncStatusPill.textContent = state.syncStatus;
-  elements.serialHint.textContent = state.serialStatus === "Connected" ? "Reader active" : "Waiting for reader";
+  elements.serialHint.textContent = isConnected ? "Reader active" : "Waiting for reader";
+
+  if (elements.scannerDot) {
+    elements.scannerDot.classList.toggle("connected", isConnected);
+  }
 }
 
 function renderLiveOutput() {

@@ -75,7 +75,7 @@
         </div>
         <div class="topbar-status">
           <span class="status-pill" id="authStatusPill">Signed in</span>
-          <span class="status-pill accent" id="syncStatusPill">Local</span>
+          <span class="status-pill accent" id="syncStatusPill" class="hidden"></span>
         </div>
       </header>
 
@@ -102,37 +102,33 @@
 
         <div class="content-grid dashboard-grid">
           <!-- Scanner Panel -->
-          <article class="panel glass-card">
+          <article class="panel glass-card scanner-panel">
             <div class="panel-head">
               <div>
-                <p class="panel-tag">Scanner</p>
-                <h2>Connect ESP32 Reader</h2>
+                <p class="panel-tag">RFID Scanner</p>
+                <h2>Reader Status</h2>
               </div>
-              <div class="inline-actions">
-                <button id="connectSerialBtn" class="mini-btn" type="button">Connect</button>
-                <button id="disconnectSerialBtn" class="mini-btn" type="button">Disconnect</button>
-                <button id="demoScanBtn" class="mini-btn" type="button">Demo</button>
+            </div>
+            <div class="scanner-status-block">
+              <div class="scanner-indicator" id="scannerIndicator">
+                <span class="scanner-dot" id="scannerDot"></span>
+                <span id="serialBadge" class="scanner-status-text">Disconnected</span>
               </div>
+              <span id="serialHint" class="status-label">Waiting for reader</span>
             </div>
             <div class="scan-tools">
               <input id="manualUidInput" placeholder="Type or paste UID" />
               <button id="scanFromInputBtn" class="primary-btn" type="button">Scan</button>
             </div>
-            <div class="status-row">
-              <span class="status-pill" id="serialBadge">Disconnected</span>
-              <span class="status-pill accent" id="syncBadge">Local demo</span>
+            <div class="scanner-actions">
+              <button id="connectSerialBtn" class="primary-btn" type="button">Connect Reader</button>
+              <button id="disconnectSerialBtn" class="secondary-btn" type="button">Disconnect</button>
+              <button id="demoScanBtn" class="mini-btn" type="button">Demo Scan</button>
             </div>
-            <pre id="liveOutput" class="json-output">{
-  "status": "info",
-  "message": "Sign in to manage data"
-}</pre>
-            <div class="feed-block">
-              <div class="feed-head">
-                <span style="font-weight:600;">Recent Scans</span>
-                <span id="serialHint" class="status-label">Waiting for reader</span>
-              </div>
-              <div id="scanFeed" class="feed-list"></div>
-            </div>
+            <!-- Hidden elements needed by JS -->
+            <span id="syncBadge" class="hidden"></span>
+            <pre id="liveOutput" class="hidden"></pre>
+            <div id="scanFeed" class="hidden"></div>
           </article>
 
           <!-- Today Attendance Panel -->
