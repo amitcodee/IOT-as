@@ -6,8 +6,6 @@ pip install pyserial
 python test.py
 """
 
-import serial
-import serial.tools.list_ports
 import json
 import os
 from datetime import datetime
@@ -21,6 +19,15 @@ employees = {
 }
 
 attendance = []
+
+
+def import_pyserial():
+    try:
+        import serial
+        import serial.tools.list_ports
+    except ImportError:
+        return None
+    return serial
 
 # ---- SCAN LOGIC ----
 
@@ -116,6 +123,11 @@ def print_json(data):
 # ---- FIND ESP32 PORT ----
 
 def find_port():
+    serial = import_pyserial()
+    if serial is None:
+        print("  Hardware mode requires pyserial. Install it with: pip install pyserial")
+        return None
+
     ports = serial.tools.list_ports.comports()
     if not ports:
         return None
@@ -152,6 +164,11 @@ def main():
 
 
 def hardware_mode():
+    serial = import_pyserial()
+    if serial is None:
+        print("  Hardware mode requires pyserial. Install it with: pip install pyserial")
+        return
+
     port = find_port()
     if not port:
         print("  No port selected. Exiting.")
