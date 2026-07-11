@@ -107,8 +107,11 @@ bool firebaseLogin() {
       ok = true;
     }
   } else {
-    Serial.print("Login error: ");
+    Serial.print("Login error code: ");
     Serial.println(code);
+    if (code > 0) {
+      Serial.println(http.getString());
+    }
   }
   http.end();
   return ok;
