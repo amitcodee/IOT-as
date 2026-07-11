@@ -66,6 +66,23 @@ function calcHours(checkIn, checkOut) {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
+function normalizeAttendanceRecord(record) {
+  if (!record) {
+    return null;
+  }
+
+  return {
+    dateKey: record.dateKey,
+    uid: record.uid,
+    employeeId: record.employeeId,
+    employeeName: record.employeeName,
+    department: record.department,
+    role: record.role,
+    checkIn: record.checkIn || null,
+    checkOut: record.checkOut || null,
+  };
+}
+
 function formatJson(value) {
   return JSON.stringify(value, null, 2);
 }
@@ -318,7 +335,10 @@ function readAttendance() {
   }
 
   return state.db.collection("attendance").onSnapshot((snapshot) => {
-    state.attendance = snapshot.docs.map((doc) => doc.data()).sort((a, b) => `${b.dateKey}${b.checkIn || ""}`.localeCompare(`${a.dateKey}${a.checkIn || ""}`));
+    state.attendance = snapshot.docs
+      .map((doc) => normalizeAttendanceRecord(doc.data()))
+      .filter(Boolean)
+      .sort((a, b) => `${b.dateKey}${b.checkIn || ""}`.localeCompare(`${a.dateKey}${a.checkIn || ""}`));
     renderAll();
   }, (error) => {
     handleFirestoreError(error);
@@ -358,20 +378,19 @@ function renderMetrics() {
   elements.metricEmployees.textContent = state.employees.length;
   elements.metricPresent.textContent = todayRecords.length;
   elements.metricCheckedOut.textContent = todayRecords.filter((record) => Boolean(record.checkOut)).length;
-  elements.metricLate.textContent = todayRecords.filter((record) => record.status === "Late").length;
+  elements.metricLate.textContent = todayRecords.length;
 }
 
 function attendanceRow(record) {
-  const statusClass = record.status === "Late" ? "late" : record.status === "Present" ? "present" : record.status === "Checked Out" ? "out" : "info";
+  const hours = record.checkIn && record.checkOut ? calcHours(record.checkIn, record.checkOut) : "-";
   return `
     <tr>
-      <td>${record.dateKey}</td>
+      <td>${record.dateKey || "-"}</td>
       <td>${record.employeeName}</td>
       <td>${record.uid}</td>
       <td>${record.checkIn || "-"}</td>
       <td>${record.checkOut || "-"}</td>
-      <td>${record.workingHours || "-"}</td>
-      <td><span class="pill ${statusClass}">${record.status}</span></td>
+      <td>${hours}</td>
     </tr>
   `;
 }
@@ -429,10 +448,10 @@ function renderAttendanceTable() {
   const filtered = filterBySearch(
     state.attendance.filter((record) => isWithinDateRange(record.dateKey, state.attendanceFrom, state.attendanceTo)),
     state.attendanceSearch,
-    ["dateKey", "employeeName", "uid", "status"],
+    ["dateKey", "employeeName", "uid"],
   );
 
-  elements.attendanceTableBody.innerHTML = filtered.map((record) => attendanceRow(record)).join("") || '<tr><td colspan="7" class="empty-state">No attendance records match the filters.</td></tr>';
+  elements.attendanceTableBody.innerHTML = filtered.map((record) => attendanceRow(record)).join("") || '<tr><td colspan="5" class="empty-state">No attendance records match the filters.</td></tr>';
 }
 
 function renderDrawer() {
@@ -461,13 +480,12 @@ function renderDrawer() {
         <td>${record.dateKey}</td>
         <td>${record.checkIn || "-"}</td>
         <td>${record.checkOut || "-"}</td>
-        <td>${record.workingHours || "-"}</td>
-        <td><span class="pill ${record.status === "Late" ? "late" : record.status === "Checked Out" ? "out" : "present"}">${record.status}</span></td>
+        <td>${record.checkIn && record.checkOut ? calcHours(record.checkIn, record.checkOut) : "-"}</td>
       </tr>
     `)
     .join("");
 
-  elements.drawerAttendanceBody.innerHTML = rows || '<tr><td colspan="5" class="empty-state">No attendance history for this employee.</td></tr>';
+  elements.drawerAttendanceBody.innerHTML = rows || '<tr><td colspan="4" class="empty-state">No attendance history for this employee.</td></tr>';
 }
 
 function renderScanFeed() {
@@ -580,16 +598,18 @@ async function saveAttendance(record) {
     const key = `${record.dateKey}_${record.uid}`;
     const existingIndex = state.attendance.findIndex((item) => `${item.dateKey}_${item.uid}` === key);
     if (existingIndex >= 0) {
-      state.attendance[existingIndex] = record;
+      state.attendance[existingIndex] = normalizeAttendanceRecord(record);
     } else {
-      state.attendance.unshift(record);
+      state.attendance.unshift(normalizeAttendanceRecord(record));
     }
     renderAll();
     return;
   }
 
+  const payload = normalizeAttendanceRecord(record);
+
   try {
-    await state.db.collection("attendance").doc(`${record.dateKey}_${record.uid}`).set(record, { merge: true });
+    await state.db.collection("attendance").doc(`${record.dateKey}_${record.uid}`).set(payload);
   } catch (error) {
     handleFirestoreError(error);
     throw error;
@@ -599,7 +619,7 @@ async function saveAttendance(record) {
 async function getAttendanceRecord(uid, dateKey) {
   const localRecord = state.attendance.find((item) => item.uid === uid && item.dateKey === dateKey);
   if (localRecord || !state.db) {
-    return localRecord || null;
+    return normalizeAttendanceRecord(localRecord);
   }
 
   let snapshot;
@@ -613,7 +633,7 @@ async function getAttendanceRecord(uid, dateKey) {
     return null;
   }
 
-  return snapshot.data();
+  return normalizeAttendanceRecord(snapshot.data());
 }
 
 async function processScan(rawUid, source = "manual") {
@@ -659,8 +679,6 @@ async function processScan(rawUid, source = "manual") {
       dateKey,
       checkIn: time,
       checkOut: null,
-      workingHours: null,
-      status: isLate(time) ? "Late" : "Present",
     };
 
     state.liveOutput = {
@@ -670,7 +688,6 @@ async function processScan(rawUid, source = "manual") {
       employee_id: employee.employeeId,
       department: employee.department,
       check_in: time,
-      attendance_status: dailyRecord.status,
       uid,
     };
 
@@ -684,8 +701,6 @@ async function processScan(rawUid, source = "manual") {
 
   if (!dailyRecord.checkOut) {
     dailyRecord.checkOut = time;
-    dailyRecord.workingHours = calcHours(dailyRecord.checkIn, time);
-    dailyRecord.status = dailyRecord.status === "Late" ? "Late" : "Checked Out";
 
     state.liveOutput = {
       status: "success",
@@ -694,7 +709,6 @@ async function processScan(rawUid, source = "manual") {
       employee_id: employee.employeeId,
       check_in: dailyRecord.checkIn,
       check_out: time,
-      working_hours: dailyRecord.workingHours,
       uid,
     };
 
@@ -908,8 +922,7 @@ function renderDrawer() {
         <td>${record.dateKey}</td>
         <td>${record.checkIn || "-"}</td>
         <td>${record.checkOut || "-"}</td>
-        <td>${record.workingHours || "-"}</td>
-        <td><span class="pill ${record.status === "Late" ? "late" : record.status === "Checked Out" ? "out" : "present"}">${record.status}</span></td>
+        <td>${record.checkIn && record.checkOut ? calcHours(record.checkIn, record.checkOut) : "-"}</td>
       </tr>
     `)
     .join("");
