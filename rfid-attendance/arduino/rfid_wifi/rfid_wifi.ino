@@ -21,22 +21,19 @@
 #include <WiFiClientSecure.h>
 #include <SPI.h>
 #include <MFRC522.h>
-#include <ArduinoJson.h>
+
 #include <time.h>
 
 // ============================================================
 //  CHANGE THESE VALUES
 // ============================================================
-const char* WIFI_SSID       = "YOUR_OFFICE_WIFI_NAME";
-const char* WIFI_PASSWORD   = "YOUR_WIFI_PASSWORD";
+#define WIFI_SSID       "Airtel_asmi_2291"
+#define WIFI_PASSWORD   "Air@08884"
 
-const char* API_KEY         = "YOUR_FIREBASE_API_KEY";
-const char* PROJECT_ID      = "YOUR_FIREBASE_PROJECT_ID";
-const char* AUTH_EMAIL      = "YOUR_FIREBASE_AUTH_EMAIL";
-const char* AUTH_PASSWORD   = "YOUR_FIREBASE_AUTH_PASSWORD";
-
-// India = 19800, Dubai = 14400, London = 0
-const long GMT_OFFSET = 19800;
+#define FIREBASE_API_KEY      "AIzaSyCxyzV5yPD05P2Ij_oFLhwbtapZ5Wo0UTI"
+#define FIREBASE_PROJECT_ID   "iot-tce-db97e"
+#define FIREBASE_EMAIL        "amit.techcadd.dev@gmail.com"
+#define FIREBASE_PASSWORD     "Amitcodee@#123"
 // ============================================================
 
 #define SS_PIN  5
