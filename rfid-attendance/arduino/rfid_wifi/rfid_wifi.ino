@@ -95,23 +95,43 @@ bool firebaseLogin() {
   body += MY_AUTH_PASS;
   body += "\",\"returnSecureToken\":true}";
 
-  Serial.print("Sending login request... ");
   int code = http.POST(body);
-  Serial.print("Response: ");
-  Serial.println(code);
   bool ok = false;
 
-  String resp = http.getString();
   if (code == 200) {
-    int s = resp.indexOf("\"idToken\":\"") + 11;
-    int e = resp.indexOf("\"", s);
-    if (s > 10 && e > s) {
-      idToken = resp.substring(s, e);
-      tokenTime = millis();
-      ok = true;
+    WiFiClient* stream = http.getStreamPtr();
+    String line = "";
+    while (stream->available() || stream->connected()) {
+      if (stream->available()) {
+        char c = stream->read();
+        line += c;
+        if (line.endsWith("\"idToken\": \"") || line.endsWith("\"idToken\":\"")) {
+          // Read the token value
+          idToken = "";
+          while (stream->available() || stream->connected()) {
+            if (stream->available()) {
+              char tc = stream->read();
+              if (tc == '"') break;
+              idToken += tc;
+            }
+          }
+          if (idToken.length() > 100) {
+            tokenTime = millis();
+            ok = true;
+            Serial.println("Token OK, length: " + String(idToken.length()));
+          }
+          break;
+        }
+        // Keep line short to save memory
+        if (line.length() > 200) {
+          line = line.substring(line.length() - 50);
+        }
+      }
     }
   } else {
-    Serial.println(resp);
+    Serial.print("Login error: ");
+    Serial.println(code);
+    Serial.println(http.getString());
   }
   http.end();
   return ok;
