@@ -225,8 +225,17 @@ void processScan(String uid) {
     return;
   }
 
+  // Debug: print first 500 chars of employee response
+  Serial.println("Employee data:");
+  Serial.println(empResp.substring(0, min((int)empResp.length(), 500)));
+
   String empName = parseField(empResp, "name");
   String empId = parseField(empResp, "employeeId");
+  Serial.print("Parsed name: [");
+  Serial.print(empName);
+  Serial.print("] id: [");
+  Serial.print(empId);
+  Serial.println("]");
   if (empName == "") empName = "Unknown";
 
   String docId = dateKey + "_" + uid;
