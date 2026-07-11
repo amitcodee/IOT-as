@@ -22,13 +22,14 @@
 // ============================================================
 //  CHANGE THESE 6 VALUES TO YOUR OWN
 // ============================================================
-#define MY_WIFI_SSID       "YOUR_OFFICE_WIFI_NAME"
-#define MY_WIFI_PASS       "YOUR_WIFI_PASSWORD"
-#define MY_API_KEY         "YOUR_FIREBASE_API_KEY"
-#define MY_PROJECT_ID      "YOUR_FIREBASE_PROJECT_ID"
-#define MY_AUTH_EMAIL      "YOUR_FIREBASE_AUTH_EMAIL"
-#define MY_AUTH_PASS       "YOUR_FIREBASE_AUTH_PASSWORD"
+#define MY_WIFI_SSID       "amit"
+#define MY_WIFI_PASS       "Amit@1322"
+#define MY_API_KEY         "AIzaSyCxyzV5yPD05P2Ij_oFLhwbtapZ5Wo0UTI"
+#define MY_PROJECT_ID      "iot-tce-db97e"
+#define MY_AUTH_EMAIL      "amithsp.techcadd@gmail.com"
+#define MY_AUTH_PASS       "Amit@123"
 #define MY_GMT_OFFSET      19800
+
 // India=19800 Dubai=14400 London=0 Singapore=28800
 // ============================================================
 
@@ -278,6 +279,17 @@ void setup() {
     Serial.println("WiFi FAILED!");
     delay(5000);
     ESP.restart();
+  }
+
+  // Test internet connection
+  Serial.print("Internet test: ");
+  WiFiClientSecure testClient;
+  testClient.setInsecure();
+  if (testClient.connect("www.google.com", 443)) {
+    Serial.println("OK");
+    testClient.stop();
+  } else {
+    Serial.println("FAILED - No internet!");
   }
 
   configTime(MY_GMT_OFFSET, 0, "pool.ntp.org");
