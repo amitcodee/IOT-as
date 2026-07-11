@@ -1,11 +1,8 @@
-# TechCADD Attendance System - Live & Remote Setup
-
-Set up the RFID attendance system so the ESP32 works **standalone in office** (no laptop needed)
-and you can check attendance **from anywhere** on your phone or PC.
+# TechCADD Attendance System - Setup Guide
 
 ---
 
-## HOW IT WORKS (REMOTE MODE)
+## HOW IT WORKS
 
 ```
 OFFICE                                    CLOUD                         YOU (ANYWHERE)
@@ -18,8 +15,9 @@ OFFICE                                    CLOUD                         YOU (ANY
 
 - ESP32 connects to your **office WiFi**
 - When employee taps card, ESP32 writes check-in/check-out **directly to Firebase**
-- Dashboard is hosted online (free) — open from any browser, anywhere
-- **No laptop or PC needed in office** — just ESP32 + power adapter + WiFi
+- You run the dashboard **locally** on your laptop (`localhost:3000`)
+- Data is stored in Firebase — accessible from any device on your network
+- **No laptop needed at the scanner** — just ESP32 + power adapter + WiFi
 
 ---
 
@@ -32,9 +30,9 @@ OFFICE                                    CLOUD                         YOU (ANY
 | RFID Cards/Tags | Employee cards |
 | 5V USB Power Adapter | Powers ESP32 (phone charger works) |
 | USB Cable | Connects ESP32 to power adapter |
-| Office WiFi | ESP32 connects to internet |
-| Firebase Account | Free database + auth + hosting |
-| GitHub Account | Free hosting via Vercel/Netlify (optional) |
+| Office WiFi (2.4 GHz) | ESP32 connects to internet |
+| Firebase Account | Free database + auth |
+| Node.js installed | Runs the local dashboard server |
 
 ---
 
@@ -91,51 +89,93 @@ service cloud.firestore {
 
 ---
 
-## STEP 4: UPLOAD WIFI FIRMWARE TO ESP32
+## STEP 4: CONFIGURE THE LOCAL DASHBOARD
 
-The ESP32 needs new firmware that connects to WiFi and writes to Firebase directly
-(instead of sending over USB serial).
+### 4.1 Install Node.js
 
-### 4.1 Install Arduino IDE Libraries
+If you don't have Node.js, download and install from https://nodejs.org (LTS version).
+
+### 4.2 Set up .env file
+
+1. Open the `rfid-attendance` folder
+2. Copy `.env.example` to `.env`
+3. Fill in your Firebase config values in `.env`:
+
+```
+APP_NAME=TechCADD Attendance
+PORT=3000
+
+FIREBASE_API_KEY=AIzaSy_your_key_here
+FIREBASE_AUTH_DOMAIN=techcadd-attendance.firebaseapp.com
+FIREBASE_PROJECT_ID=techcadd-attendance
+FIREBASE_STORAGE_BUCKET=techcadd-attendance.appspot.com
+FIREBASE_MESSAGING_SENDER_ID=123456789
+FIREBASE_APP_ID=1:123456789:web:abc123
+FIREBASE_MEASUREMENT_ID=
+```
+
+### 4.3 Start the Dashboard
+
+Open terminal in the `rfid-attendance` folder and run:
+
+```bash
+npm start
+```
+
+Or:
+
+```bash
+node server.mjs
+```
+
+Dashboard opens at:
+
+```
+http://localhost:3000
+```
+
+Sign in with the email/password you created in Step 2.
+
+---
+
+## STEP 5: WIRE THE RC522 TO ESP32
+
+```
+RC522 Pin      ESP32 Pin
+---------      ---------
+SDA       ---> GPIO 5
+SCK       ---> GPIO 18
+MOSI      ---> GPIO 23
+MISO      ---> GPIO 19
+RST       ---> GPIO 22
+3.3V      ---> 3.3V
+GND       ---> GND
+```
+
+WARNING: Use **3.3V NOT 5V**. The RC522 runs on 3.3V.
+
+---
+
+## STEP 6: UPLOAD WIFI FIRMWARE TO ESP32
+
+The ESP32 connects to WiFi and writes directly to Firebase. **No extra Firebase library needed** — uses built-in HTTP client.
+
+### 6.1 Install Arduino IDE Libraries
 
 Open Arduino IDE → Sketch → Include Library → Manage Libraries:
-- Search and install **MFRC522**
-- Search and install **Firebase ESP32 Client** (by Mobizt)
-- Search and install **ArduinoJson**
 
-If "Firebase ESP32 Client" is not found, install it manually:
-1. Go to https://github.com/mobizt/Firebase-ESP-Client
-2. Download ZIP → Arduino IDE → Sketch → Include Library → Add .ZIP Library
+1. Search **MFRC522** → Install
+2. Search **ArduinoJson** (by Benoit Blanchon) → Install
 
-### 4.2 Create New Arduino File
+Only 2 libraries needed. Everything else is built into ESP32.
 
-Create a new file `arduino/rfid_wifi/rfid_wifi.ino` and paste the code below.
+### 6.2 Open the Firmware File
 
-**IMPORTANT:** Replace the placeholder values with your actual WiFi and Firebase credentials.
+1. Open Arduino IDE
+2. Open the file: `arduino/rfid_wifi/rfid_wifi.ino`
+3. **Edit the settings** at the top of the file:
 
 ```cpp
-/*
-  TechCADD Attendance - ESP32 WiFi + Firebase
-  ESP32 reads RFID card → connects to WiFi → writes to Firestore
-
-  WIRING (same as before):
-    RC522   ->  ESP32
-    SDA     ->  GPIO 5
-    SCK     ->  GPIO 18
-    MOSI    ->  GPIO 23
-    MISO    ->  GPIO 19
-    RST     ->  GPIO 22
-    3.3V    ->  3.3V
-    GND     ->  GND
-*/
-
-#include <WiFi.h>
-#include <SPI.h>
-#include <MFRC522.h>
-#include <Firebase_ESP_Client.h>
-#include <addons/TokenHelper.h>
-
-// ===== YOUR SETTINGS - CHANGE THESE =====
 #define WIFI_SSID       "YOUR_OFFICE_WIFI_NAME"
 #define WIFI_PASSWORD   "YOUR_WIFI_PASSWORD"
 
@@ -143,328 +183,145 @@ Create a new file `arduino/rfid_wifi/rfid_wifi.ino` and paste the code below.
 #define FIREBASE_PROJECT_ID   "YOUR_FIREBASE_PROJECT_ID"
 #define FIREBASE_EMAIL        "YOUR_FIREBASE_AUTH_EMAIL"
 #define FIREBASE_PASSWORD     "YOUR_FIREBASE_AUTH_PASSWORD"
-// =========================================
-
-#define SS_PIN  5
-#define RST_PIN 22
-
-MFRC522 rfid(SS_PIN, RST_PIN);
-FirebaseData fbdo;
-FirebaseAuth auth;
-FirebaseConfig config;
-
-String lastUID = "";
-unsigned long lastScanTime = 0;
-bool firebaseReady = false;
-
-void setup() {
-  Serial.begin(115200);
-  pinMode(2, OUTPUT);
-
-  // Connect to WiFi
-  Serial.print("Connecting to WiFi");
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-    digitalWrite(2, !digitalRead(2)); // blink while connecting
-  }
-  Serial.println("\nWiFi connected: " + WiFi.localIP().toString());
-  digitalWrite(2, HIGH); // solid LED = connected
-
-  // Firebase setup
-  config.api_key = FIREBASE_API_KEY;
-  auth.user.email = FIREBASE_EMAIL;
-  auth.user.password = FIREBASE_PASSWORD;
-  config.token_status_callback = tokenStatusCallback;
-
-  Firebase.begin(&config, &auth);
-  Firebase.reconnectNetwork(true);
-
-  // Wait for Firebase auth
-  Serial.print("Authenticating");
-  while (!Firebase.ready()) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println("\nFirebase ready!");
-  firebaseReady = true;
-
-  // Init RFID
-  SPI.begin();
-  rfid.PCD_Init();
-  Serial.println("RFID_READY - Scan a card");
-
-  // Blink 3 times = all ready
-  for (int i = 0; i < 3; i++) {
-    digitalWrite(2, LOW); delay(150);
-    digitalWrite(2, HIGH); delay(150);
-  }
-}
-
-String getDateKey() {
-  // Simple date from millis - for accurate dates, use NTP
-  // This uses Firebase server timestamp instead
-  return "";
-}
-
-String getTimeStr() {
-  return "";
-}
-
-void loop() {
-  if (!rfid.PICC_IsNewCardPresent() || !rfid.PICC_ReadCardSerial()) {
-    return;
-  }
-
-  // Build UID string
-  String uid = "";
-  for (byte i = 0; i < rfid.uid.size; i++) {
-    if (rfid.uid.uidByte[i] < 0x10) uid += "0";
-    uid += String(rfid.uid.uidByte[i], HEX);
-  }
-  uid.toUpperCase();
-
-  // Skip duplicate scan within 3 seconds
-  if (uid == lastUID && (millis() - lastScanTime) < 3000) {
-    rfid.PICC_HaltA();
-    rfid.PCD_StopCrypto1();
-    return;
-  }
-
-  lastUID = uid;
-  lastScanTime = millis();
-
-  Serial.println("Card scanned: " + uid);
-
-  // Blink LED
-  digitalWrite(2, LOW);
-  delay(200);
-  digitalWrite(2, HIGH);
-
-  if (!firebaseReady || !Firebase.ready()) {
-    Serial.println("Firebase not ready, skipping");
-    rfid.PICC_HaltA();
-    rfid.PCD_StopCrypto1();
-    return;
-  }
-
-  // Write scan to a "scans" queue collection
-  // The dashboard web app will process these scans
-  FirebaseJson json;
-  json.set("uid", uid);
-  json.set("timestamp", "discover");
-
-  // Use server timestamp
-  json.set("scannedAt/.sv", "timestamp");
-
-  String docPath = "scans/" + uid + "_" + String(millis());
-  if (Firebase.Firestore.createDocument(&fbdo, FIREBASE_PROJECT_ID, "", docPath.c_str(), json.raw())) {
-    Serial.println("Scan saved to Firebase!");
-  } else {
-    Serial.println("Firebase error: " + fbdo.errorReason());
-  }
-
-  rfid.PICC_HaltA();
-  rfid.PCD_StopCrypto1();
-}
 ```
 
-### 4.3 Upload to ESP32
+Example:
 
-1. Open `rfid_wifi.ino` in Arduino IDE
-2. **Edit the 4 settings** at the top with your actual values
-3. Tools → Board → ESP32 Dev Module
-4. Tools → Port → select your ESP32 port (e.g., COM5)
-5. Click Upload
-6. Open Serial Monitor (115200 baud) — you should see:
-   ```
-   Connecting to WiFi....
-   WiFi connected: 192.168.1.105
-   Authenticating...
-   Firebase ready!
-   RFID_READY - Scan a card
-   ```
-7. Tap a card — it should say "Scan saved to Firebase!"
+```cpp
+#define WIFI_SSID       "TechCADD_Office"
+#define WIFI_PASSWORD   "office@2026"
 
-### 4.4 Power Without Laptop
+#define FIREBASE_API_KEY      "AIzaSyB1234abcd5678efgh"
+#define FIREBASE_PROJECT_ID   "techcadd-attendance"
+#define FIREBASE_EMAIL        "admin@techcadd.com"
+#define FIREBASE_PASSWORD     "your-secure-password"
+```
 
-Once firmware is uploaded:
+### 6.3 Set Timezone (if not India)
+
+Default is India (+5:30). Change this line for other timezones:
+
+```cpp
+#define GMT_OFFSET   19800   // India = +5:30 = 19800 seconds
+```
+
+| Timezone | GMT_OFFSET |
+|----------|-----------|
+| India (IST +5:30) | 19800 |
+| Dubai (GST +4:00) | 14400 |
+| London (GMT +0:00) | 0 |
+| US Eastern (-5:00) | -18000 |
+| Singapore (+8:00) | 28800 |
+
+### 6.4 Upload to ESP32
+
+1. Plug ESP32 into your laptop with USB cable
+2. In Arduino IDE:
+   - Tools → Board → **ESP32 Dev Module**
+   - Tools → Port → select your ESP32 port (e.g., **COM5**)
+3. Click **Upload** (arrow icon)
+   - If upload fails, hold the **BOOT** button on ESP32 while uploading
+4. Open **Tools → Serial Monitor** (baud: **115200**)
+5. You should see:
+
+```
+================================
+  TechCADD Attendance System
+  ESP32 + RC522 + WiFi
+================================
+Connecting to WiFi....
+WiFi connected: 192.168.1.105
+Syncing time....
+Time: 2026-07-11 14:30:45
+Firebase login OK
+
+SYSTEM READY - Scan a card!
+================================
+```
+
+6. Tap a card — you should see:
+
+```
+Card: 82510704
+CHECK IN: Aarav Patel at 14:31:02
+```
+
+7. Tap same card again:
+
+```
+Card: 82510704
+CHECK OUT: Aarav Patel at 18:05:33
+```
+
+### 6.5 Power Without Laptop
+
+Once firmware is uploaded and tested:
+
 1. Unplug ESP32 from laptop
-2. Plug ESP32 into any **5V USB power adapter** (phone charger)
-3. ESP32 boots up, connects to WiFi, and starts reading cards automatically
-4. **No laptop needed anymore**
+2. Plug into any **5V USB power adapter** (phone charger)
+3. Place near office entrance with RC522 reader accessible
+4. ESP32 boots, connects to WiFi, starts reading cards **automatically**
+5. **No laptop needed at the scanner**
 
 ---
 
-## STEP 5: HOST THE DASHBOARD ONLINE (FREE)
+## STEP 7: ADD EMPLOYEES & ASSIGN CARDS
 
-You have 3 options. Pick one:
+1. Open `http://localhost:3000` on your laptop
+2. Sign in
+3. Go to **Employees** tab
+4. For each employee:
+   - Type the card UID (read from Serial Monitor or `test.py`)
+   - Or click **Connect Reader** → **Scan Card to Assign UID** (if ESP32 is connected via USB)
+   - Enter: Name, Employee ID, Department, Role, Phone
+   - Click **Save Employee**
+5. Now when that employee taps their card, their name shows in attendance
 
-### Option A: Firebase Hosting (Recommended)
+### Reading Card UIDs with test.py
 
-1. Install Firebase CLI:
-   ```bash
-   npm install -g firebase-tools
-   ```
+If you need to find a card's UID:
 
-2. Login:
-   ```bash
-   firebase login
-   ```
+```bash
+python test.py
+```
 
-3. In your project folder (`rfid-attendance`), create `firebase.json`:
-   ```json
-   {
-     "hosting": {
-       "public": "web",
-       "ignore": ["firebase.json", "**/.*"],
-       "rewrites": [
-         { "source": "/config.js", "destination": "/config.js" },
-         { "source": "**", "destination": "/index.html" }
-       ]
-     }
-   }
-   ```
-
-4. Create `web/config.js` with your Firebase config (since there's no server.mjs online):
-   ```js
-   window.__APP_CONFIG__ = {
-     appName: "TechCADD Attendance",
-     firebase: {
-       apiKey: "YOUR_FIREBASE_API_KEY",
-       authDomain: "YOUR_PROJECT.firebaseapp.com",
-       projectId: "YOUR_PROJECT_ID",
-       storageBucket: "YOUR_PROJECT.appspot.com",
-       messagingSenderId: "YOUR_SENDER_ID",
-       appId: "YOUR_APP_ID"
-     }
-   };
-   ```
-
-5. Deploy:
-   ```bash
-   firebase init hosting
-   firebase deploy --only hosting
-   ```
-
-6. Your dashboard is now live at:
-   ```
-   https://YOUR_PROJECT_ID.web.app
-   ```
-
-### Option B: Vercel (Free)
-
-1. Push your code to GitHub
-2. Go to https://vercel.com → Import your repo
-3. Set framework to "Other"
-4. Set output directory to `web`
-5. Add environment variables (same as .env file)
-6. Deploy — get a free URL like `your-project.vercel.app`
-
-### Option C: Netlify (Free)
-
-1. Push code to GitHub
-2. Go to https://netlify.com → New site from Git
-3. Set publish directory to `web`
-4. Create `web/config.js` with your Firebase config (same as Option A step 4)
-5. Deploy — get a free URL
+Connect ESP32 via USB, select the COM port, tap cards — UIDs will be printed.
 
 ---
 
-## STEP 6: PROCESS SCANS INTO ATTENDANCE
+## RUNNING DAILY
 
-The ESP32 writes raw scans to a `scans` collection. You need to process them into attendance records.
+### Start the dashboard:
+```bash
+cd rfid-attendance
+npm start
+```
+Open `http://localhost:3000` in browser.
 
-### Option 1: Use Cloud Functions (Automatic)
+### ESP32 scanner:
+Just make sure it's plugged into power and WiFi is on. It works automatically.
 
-Create a Firebase Cloud Function that triggers on new scan documents:
-
-1. Initialize Cloud Functions:
-   ```bash
-   firebase init functions
-   ```
-
-2. In `functions/index.js`:
-   ```js
-   const functions = require("firebase-functions");
-   const admin = require("firebase-admin");
-   admin.initializeApp();
-   const db = admin.firestore();
-
-   exports.processScan = functions.firestore
-     .document("scans/{scanId}")
-     .onCreate(async (snap) => {
-       const scan = snap.data();
-       const uid = scan.uid;
-       if (!uid) return;
-
-       // Get employee
-       const empSnap = await db.collection("employees").doc(uid).get();
-       if (!empSnap.exists) return;
-       const emp = empSnap.data();
-
-       // Today's date
-       const now = new Date();
-       const dateKey = now.toISOString().slice(0, 10);
-       const time = now.toTimeString().slice(0, 8);
-       const docId = dateKey + "_" + uid;
-
-       // Check existing attendance
-       const attSnap = await db.collection("attendance").doc(docId).get();
-
-       if (!attSnap.exists) {
-         // Check IN
-         await db.collection("attendance").doc(docId).set({
-           uid,
-           employeeId: emp.employeeId,
-           employeeName: emp.name,
-           dateKey,
-           checkIn: time,
-           checkOut: null,
-         });
-       } else if (!attSnap.data().checkOut) {
-         // Check OUT
-         await db.collection("attendance").doc(docId).update({
-           checkOut: time,
-         });
-       }
-
-       // Delete processed scan
-       await snap.ref.delete();
-     });
-   ```
-
-3. Deploy:
-   ```bash
-   firebase deploy --only functions
-   ```
-
-Now every card tap is automatically processed!
-
-### Option 2: Dashboard Processes Scans (No Cloud Functions)
-
-If you don't want Cloud Functions, the dashboard can process scans.
-Keep a browser tab open with the dashboard — it already handles scan processing
-via the Web Serial flow. Just use the dashboard's connect button when you're near the ESP32.
-
-For fully remote (no browser open), Option 1 (Cloud Functions) is recommended.
+### View attendance:
+- **Dashboard tab** → today's attendance
+- **Attendance tab** → filter by date range
+- **Employee View** → click View on any employee → see monthly attendance, hours, remarks
 
 ---
 
 ## FINAL SETUP CHECKLIST
 
 ```
-[ ] Firebase project created
-[ ] Auth enabled, admin user created
-[ ] Firestore database created with rules
-[ ] ESP32 firmware uploaded with WiFi + Firebase credentials
-[ ] ESP32 plugged into power adapter in office (no laptop)
-[ ] Dashboard hosted online (Firebase Hosting / Vercel / Netlify)
-[ ] Employees added in dashboard
-[ ] RFID cards assigned to employees
-[ ] Cloud Function deployed (for automatic scan processing)
-[ ] Test: tap card in office → check dashboard from phone
+[  ] Firebase project created
+[  ] Auth enabled, admin user created
+[  ] Firestore database created with rules
+[  ] .env file configured with Firebase values
+[  ] npm start works, dashboard opens at localhost:3000
+[  ] Arduino libraries installed (MFRC522 + ArduinoJson)
+[  ] WiFi + Firebase config edited in rfid_wifi.ino
+[  ] Firmware uploaded to ESP32 and tested
+[  ] ESP32 plugged into power adapter (standalone)
+[  ] Employees added and RFID cards assigned
+[  ] Test: tap card → check dashboard → attendance appears
 ```
 
 ---
@@ -475,9 +332,38 @@ For fully remote (no browser open), Option 1 (Cloud Functions) is recommended.
 |-------------|---------|
 | Blinking slowly | Connecting to WiFi |
 | Solid ON | WiFi connected, waiting for cards |
-| Quick blink | Card scanned successfully |
-| 3 quick blinks | System fully ready (WiFi + Firebase + RFID) |
-| OFF | No power or error |
+| 1 quick blink | CHECK IN successful |
+| 2 quick blinks | CHECK OUT successful |
+| 3 quick blinks on boot | System fully ready |
+| 3 slow blinks | Already checked in and out today |
+| 5 rapid blinks | Error (unknown card / connection error) |
+| OFF | No power |
+
+---
+
+## HOW SCAN LOGIC WORKS
+
+```
+Employee taps card on reader
+       │
+       ▼
+ESP32 reads UID from card
+       │
+       ▼
+ESP32 checks: is this UID in "employees" collection?
+       │
+   NO ─┤──> 5 rapid blinks (unknown card)
+       │
+   YES─┤──> Is there an attendance record for today?
+       │         │
+       │     NO ─┤──> CREATE record with checkIn time (1 blink)
+       │         │
+       │     YES─┤──> Is checkOut empty?
+       │              │
+       │          YES─┤──> UPDATE record with checkOut time (2 blinks)
+       │              │
+       │           NO─┤──> Already done today (3 slow blinks)
+```
 
 ---
 
@@ -489,13 +375,13 @@ For fully remote (no browser open), Option 1 (Cloud Functions) is recommended.
 │                                                              │
 │   ┌──────────┐    ┌──────────┐    ┌──────────────────────┐  │
 │   │  RFID    │───>│  ESP32   │───>│  Office WiFi Router  │──┼──> Internet
-│   │  RC522   │    │          │    │                      │  │
+│   │  RC522   │    │          │    │   (2.4 GHz only)     │  │
 │   └──────────┘    └──────────┘    └──────────────────────┘  │
 │                    powered by                                │
 │                    USB charger                               │
 └─────────────────────────────────────────────────────────────┘
                            │
-                           │ (writes to Firestore via WiFi)
+                           │ (REST API over HTTPS)
                            ▼
                  ┌──────────────────┐
                  │  Firebase Cloud  │
@@ -505,18 +391,17 @@ For fully remote (no browser open), Option 1 (Cloud Functions) is recommended.
                  │  ┌────────────┐  │
                  │  │   Auth     │  │  ← login credentials
                  │  └────────────┘  │
-                 │  ┌────────────┐  │
-                 │  │  Hosting   │  │  ← dashboard website
-                 │  └────────────┘  │
                  └──────────────────┘
                            │
-              ┌────────────┼────────────┐
-              ▼            ▼            ▼
-         ┌────────┐  ┌────────┐  ┌────────┐
-         │ Phone  │  │ Laptop │  │ Tablet │
-         │ Browser│  │ Browser│  │ Browser│
-         └────────┘  └────────┘  └────────┘
-              Access from ANYWHERE
+                           ▼
+                    ┌────────────┐
+                    │  Your PC   │
+                    │ localhost  │
+                    │   :3000   │
+                    └────────────┘
+                    Dashboard runs
+                    locally on your
+                    laptop/PC
 ```
 
 ---
@@ -526,8 +411,6 @@ For fully remote (no browser open), Option 1 (Cloud Functions) is recommended.
 | Service | Cost |
 |---------|------|
 | Firebase (Spark Plan) | FREE (50K reads/day, 20K writes/day) |
-| Firebase Hosting | FREE (10 GB/month) |
-| Vercel / Netlify | FREE tier available |
 | ESP32 + RC522 | One-time ~₹500-800 |
 | RFID Cards | ~₹10-20 per card |
 
@@ -539,9 +422,51 @@ For a small office (under 50 employees), everything stays within the free tier.
 
 | Problem | Fix |
 |---------|-----|
-| ESP32 won't connect to WiFi | Double-check SSID and password. WiFi must be 2.4 GHz (ESP32 doesn't support 5 GHz). |
-| Firebase auth fails on ESP32 | Verify API key and email/password are correct. |
-| Card taps but nothing in database | Check Serial Monitor for errors. Make sure Firebase rules allow writes. |
-| Dashboard shows no data | Make sure dashboard config matches same Firebase project. |
-| ESP32 disconnects from WiFi | Add a WiFi reconnect check in loop. ESP32 auto-reconnects in most cases. |
-| "Quota exceeded" error | You've hit Firebase free tier limits. Reduce scan frequency or upgrade plan. |
+| `npm start` fails | Make sure Node.js is installed. Run `node -v` to check. |
+| Dashboard won't load | Check `.env` file has correct Firebase values. |
+| Login fails | Make sure you created a user in Firebase Auth (Step 2). |
+| ESP32 won't connect to WiFi | Check SSID and password. WiFi must be **2.4 GHz** (ESP32 doesn't support 5 GHz). |
+| "Firebase login failed" in Serial Monitor | Verify API key and email/password in the firmware code. |
+| Card taps but nothing in dashboard | Check Serial Monitor for errors. Verify Firestore rules allow writes. |
+| Upload fails in Arduino IDE | Hold the **BOOT** button on ESP32 while uploading. |
+| Serial Monitor shows garbage | Set baud rate to **115200**. |
+| "MFRC522.h: No such file" | Install: Sketch → Include Library → Manage Libraries → search "MFRC522" → Install. |
+| "ArduinoJson.h: No such file" | Install: search "ArduinoJson" by Benoit Blanchon → Install. |
+| Time shows wrong | Change `GMT_OFFSET` in the code (see timezone table in Step 6.3). |
+| Card not detected | Hold card within 2-3 cm of the RC522 reader coil. |
+
+---
+
+## FILES
+
+```
+rfid-attendance/
+   arduino/
+      rfid_scanner/
+         rfid_scanner.ino    ← USB-serial mode (needs laptop connected)
+      rfid_wifi/
+         rfid_wifi.ino       ← WiFi mode (standalone, no laptop at scanner)
+   web/
+      index.html             ← Dashboard UI
+      app.js                 ← Dashboard logic
+      styles.css             ← Styling
+      logo.png               ← TechCADD logo
+   server.mjs               ← Local server (reads .env, serves dashboard)
+   .env                     ← Your Firebase config (create from .env.example)
+   .env.example             ← Template
+   test.py                  ← UID reader utility
+   setup.md                 ← This file
+   run.md                   ← Quick reference
+```
+
+---
+
+## FUTURE: HOST ONLINE
+
+When you're ready to access the dashboard from anywhere (not just localhost), see the hosting options:
+
+- **Firebase Hosting** (free) — `firebase deploy --only hosting`
+- **Vercel** (free) — push to GitHub, import on vercel.com
+- **Netlify** (free) — push to GitHub, import on netlify.com
+
+For now, `localhost:3000` works perfectly for local use.
