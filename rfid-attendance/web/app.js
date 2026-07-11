@@ -370,7 +370,7 @@ function attendanceRow(record) {
   const pillClass = statusPillClass(status);
   return `<tr>
     <td>${record.dateKey || "-"}</td>
-    <td>${record.employeeName || getEmployeeName(record.uid)}</td>
+    <td>${getEmployeeName(record.uid)}</td>
     <td>${record.uid}</td>
     <td>${record.checkIn || "-"}</td>
     <td>${record.checkOut || "-"}</td>
