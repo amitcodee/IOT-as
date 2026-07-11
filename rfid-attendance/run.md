@@ -76,6 +76,23 @@ WARNING: Use 3.3V NOT 5V. The RC522 runs on 3.3V.
 2. Fill in your Firebase web config values in `.env`.
 3. Make sure Firebase Email/Password sign-in is enabled in the Firebase console.
 4. Create at least one Firebase Auth user for logging in.
+5. Update Firestore rules so signed-in users can read and write the attendance collections.
+
+Use this example in Firestore Rules if you want any authenticated user to manage the app:
+
+```rules
+rules_version = '2';
+service cloud.firestore {
+   match /databases/{database}/documents {
+      match /{document=**} {
+         allow read, write: if request.auth != null;
+      }
+   }
+}
+```
+
+If you want stricter access later, replace the `request.auth != null` check with your own user or email whitelist.
+
 
 ---
 

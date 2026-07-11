@@ -22,6 +22,7 @@ const state = {
   view: "dashboardView",
   serialStatus: "Disconnected",
   syncStatus: "Local demo",
+  captureUidForEmployee: false,
   liveOutput: {
     status: "info",
     message: "Sign in to manage attendance",
@@ -30,6 +31,8 @@ const state = {
   serialPort: null,
   serialReader: null,
   serialDecoder: null,
+  serialStreamClosed: null,
+  serialConnecting: false,
 };
 
 const elements = {};
@@ -108,6 +111,11 @@ function cacheElements() {
     "employeeDepartment",
     "employeeRole",
     "employeePhone",
+    "connectEmployeeSerialBtn",
+    "disconnectEmployeeSerialBtn",
+    "employeeSerialStatus",
+    "scanEmployeeUidBtn",
+    "scanEmployeeUidHint",
     "clearEmployeeFormBtn",
     "employeeSearchInput",
     "employeeTableBody",
@@ -152,7 +160,6 @@ function initFirebase() {
 
   state.auth = window.firebase.auth();
   state.db = window.firebase.firestore();
-  state.db.settings({ ignoreUndefinedProperties: true });
   state.syncStatus = "Firebase live";
 
   state.auth.setPersistence(window.firebase.auth.Auth.Persistence.LOCAL).catch(() => null);
@@ -196,6 +203,33 @@ function renderLiveOutput() {
   elements.liveOutput.textContent = formatJson(state.liveOutput || { status: "info", message: "Ready" });
 }
 
+function renderUidCaptureState() {
+  if (!elements.scanEmployeeUidBtn || !elements.scanEmployeeUidHint) {
+    return;
+  }
+
+  if (state.captureUidForEmployee) {
+    elements.scanEmployeeUidBtn.textContent = "Waiting for scanned UID...";
+    elements.scanEmployeeUidBtn.disabled = true;
+    elements.scanEmployeeUidHint.textContent = "Tap the RFID card on the reader now.";
+    return;
+  }
+
+  elements.scanEmployeeUidBtn.textContent = "Scan card to assign UID";
+  elements.scanEmployeeUidBtn.disabled = false;
+  elements.scanEmployeeUidHint.textContent = "Ready to capture a UID";
+}
+
+function renderEmployeeSerialStatus() {
+  if (!elements.employeeSerialStatus) {
+    return;
+  }
+
+  elements.employeeSerialStatus.textContent = state.serialStatus === "Connected" || state.serialStatus === "Reader ready"
+    ? `Reader ${state.serialStatus.toLowerCase()}`
+    : "Reader disconnected";
+}
+
 function setView(viewId) {
   state.view = viewId;
   document.querySelectorAll(".view").forEach((section) => section.classList.toggle("is-active", section.id === viewId));
@@ -217,6 +251,52 @@ function setDefaultLiveOutput() {
   };
 }
 
+function handleFirestoreError(error) {
+  const message = error?.message || "Firestore access failed";
+  if (String(message).toLowerCase().includes("permission-denied")) {
+    state.syncStatus = "Firestore blocked";
+    state.liveOutput = {
+      status: "error",
+      message: "Firestore permission denied. Update Firestore rules to allow the signed-in user.",
+    };
+    if (elements.loginHint) {
+      elements.loginHint.textContent = "Firestore permission denied. Check the Firestore rules in run.md.";
+    }
+  } else {
+    state.liveOutput = {
+      status: "error",
+      message,
+    };
+  }
+
+  renderStatusBadges();
+  renderLiveOutput();
+}
+
+function beginEmployeeUidCapture() {
+  state.captureUidForEmployee = true;
+  state.liveOutput = {
+    status: "info",
+    message: "Waiting for a card scan to assign the employee UID",
+  };
+  renderAll();
+
+  if (state.serialStatus !== "Connected" && !state.serialConnecting) {
+    connectSerial();
+  }
+}
+
+function completeEmployeeUidCapture(uid) {
+  elements.employeeUid.value = uid;
+  state.captureUidForEmployee = false;
+  state.liveOutput = {
+    status: "success",
+    message: `Captured UID ${uid} for the employee form`,
+  };
+  renderAll();
+  elements.employeeUid.focus();
+}
+
 function readEmployees() {
   if (!state.db) {
     state.employees = sampleEmployees.map((employee) => ({ ...employee }));
@@ -226,6 +306,8 @@ function readEmployees() {
   return state.db.collection("employees").onSnapshot((snapshot) => {
     state.employees = snapshot.docs.map((doc) => ({ uid: doc.id, ...doc.data() })).sort((a, b) => a.name.localeCompare(b.name));
     renderAll();
+  }, (error) => {
+    handleFirestoreError(error);
   });
 }
 
@@ -238,6 +320,8 @@ function readAttendance() {
   return state.db.collection("attendance").onSnapshot((snapshot) => {
     state.attendance = snapshot.docs.map((doc) => doc.data()).sort((a, b) => `${b.dateKey}${b.checkIn || ""}`.localeCompare(`${a.dateKey}${a.checkIn || ""}`));
     renderAll();
+  }, (error) => {
+    handleFirestoreError(error);
   });
 }
 
@@ -418,6 +502,8 @@ function renderAll() {
 
 function clearEmployeeForm() {
   elements.employeeForm.reset();
+  state.captureUidForEmployee = false;
+  renderUidCaptureState();
   elements.employeeUid.focus();
 }
 
@@ -465,7 +551,12 @@ async function saveEmployee(employee) {
     return;
   }
 
-  await state.db.collection("employees").doc(employee.uid).set(employee, { merge: true });
+  try {
+    await state.db.collection("employees").doc(employee.uid).set(employee, { merge: true });
+  } catch (error) {
+    handleFirestoreError(error);
+    throw error;
+  }
 }
 
 async function deleteEmployee(uid) {
@@ -476,7 +567,12 @@ async function deleteEmployee(uid) {
     return;
   }
 
-  await state.db.collection("employees").doc(uid).delete();
+  try {
+    await state.db.collection("employees").doc(uid).delete();
+  } catch (error) {
+    handleFirestoreError(error);
+    throw error;
+  }
 }
 
 async function saveAttendance(record) {
@@ -492,7 +588,32 @@ async function saveAttendance(record) {
     return;
   }
 
-  await state.db.collection("attendance").doc(`${record.dateKey}_${record.uid}`).set(record, { merge: true });
+  try {
+    await state.db.collection("attendance").doc(`${record.dateKey}_${record.uid}`).set(record, { merge: true });
+  } catch (error) {
+    handleFirestoreError(error);
+    throw error;
+  }
+}
+
+async function getAttendanceRecord(uid, dateKey) {
+  const localRecord = state.attendance.find((item) => item.uid === uid && item.dateKey === dateKey);
+  if (localRecord || !state.db) {
+    return localRecord || null;
+  }
+
+  let snapshot;
+  try {
+    snapshot = await state.db.collection("attendance").doc(`${dateKey}_${uid}`).get();
+  } catch (error) {
+    handleFirestoreError(error);
+    return null;
+  }
+  if (!snapshot.exists) {
+    return null;
+  }
+
+  return snapshot.data();
 }
 
 async function processScan(rawUid, source = "manual") {
@@ -500,6 +621,14 @@ async function processScan(rawUid, source = "manual") {
   const now = new Date();
   const time = formatTime(now);
   const dateKey = todayKey(now);
+
+  if (state.captureUidForEmployee) {
+    if (uid) {
+      completeEmployeeUidCapture(uid);
+    }
+    return;
+  }
+
   const employee = state.employees.find((item) => item.uid === uid);
 
   if (!uid) {
@@ -518,7 +647,7 @@ async function processScan(rawUid, source = "manual") {
     return;
   }
 
-  let dailyRecord = state.attendance.find((item) => item.uid === uid && item.dateKey === dateKey);
+  let dailyRecord = await getAttendanceRecord(uid, dateKey);
 
   if (!dailyRecord) {
     dailyRecord = {
@@ -571,6 +700,12 @@ async function processScan(rawUid, source = "manual") {
 
     state.scanFeed.unshift({ uid, type: "CHECK_OUT", name: employee.name, message: `${employee.name} checked out`, time, source });
     state.scanFeed = state.scanFeed.slice(0, 8);
+    const localIndex = state.attendance.findIndex((item) => item.uid === uid && item.dateKey === dateKey);
+    if (localIndex >= 0) {
+      state.attendance[localIndex] = dailyRecord;
+    } else {
+      state.attendance.unshift(dailyRecord);
+    }
     await saveAttendance(dailyRecord);
     renderAll();
     return;
@@ -637,23 +772,43 @@ async function handleEmployeeSubmit(event) {
   renderAll();
 }
 
-function disconnectSerial() {
-  try {
-    state.serialReader?.cancel();
-    state.serialReader?.releaseLock();
-  } catch {
-    // ignore
-  }
+async function disconnectSerial() {
+  state.serialConnecting = false;
 
-  try {
-    state.serialPort?.close();
-  } catch {
-    // ignore
-  }
+  const port = state.serialPort;
+  const reader = state.serialReader;
+  const streamClosed = state.serialStreamClosed;
 
   state.serialPort = null;
   state.serialReader = null;
   state.serialDecoder = null;
+  state.serialStreamClosed = null;
+
+  try {
+    await reader?.cancel();
+  } catch {
+    // ignore
+  }
+
+  try {
+    if (streamClosed) {
+      await streamClosed.catch(() => null);
+    }
+  } catch {
+    // ignore
+  }
+
+  try {
+    reader?.releaseLock();
+  } catch {
+    // ignore
+  }
+
+  try {
+    await port?.close();
+  } catch {
+    // ignore
+  }
   state.serialStatus = "Disconnected";
   renderStatusBadges();
 }
@@ -664,14 +819,25 @@ async function connectSerial() {
     return;
   }
 
+  if (state.serialConnecting || state.serialStatus === "Connected") {
+    return;
+  }
+
+  state.serialConnecting = true;
+  elements.connectSerialBtn.disabled = true;
+
   try {
+    if (state.serialPort || state.serialReader || state.serialDecoder || state.serialStreamClosed) {
+      await disconnectSerial();
+    }
+
     state.serialPort = await navigator.serial.requestPort();
     await state.serialPort.open({ baudRate: 115200 });
     state.serialStatus = "Connected";
     renderStatusBadges();
 
     state.serialDecoder = new TextDecoderStream();
-    const readableClosed = state.serialPort.readable.pipeTo(state.serialDecoder.writable);
+    state.serialStreamClosed = state.serialPort.readable.pipeTo(state.serialDecoder.writable);
     state.serialReader = state.serialDecoder.readable.getReader();
     let buffer = "";
 
@@ -703,10 +869,16 @@ async function connectSerial() {
       }
     }
 
-    await readableClosed.catch(() => null);
+    await state.serialStreamClosed?.catch(() => null);
   } catch (error) {
     state.liveOutput = { status: "error", message: error.message || "Unable to connect to the serial reader" };
     renderAll();
+  } finally {
+    state.serialConnecting = false;
+    elements.connectSerialBtn.disabled = false;
+    if (elements.connectEmployeeSerialBtn) {
+      elements.connectEmployeeSerialBtn.disabled = false;
+    }
   }
 }
 
@@ -752,6 +924,8 @@ function renderAll() {
 
   renderStatusBadges();
   renderLiveOutput();
+  renderUidCaptureState();
+  renderEmployeeSerialStatus();
   renderMetrics();
   renderTodayAttendance();
   renderEmployeeTable();
@@ -771,6 +945,7 @@ function wireEvents() {
   elements.signOutBtn.addEventListener("click", () => state.auth?.signOut());
   elements.signOutBtnSecondary.addEventListener("click", () => state.auth?.signOut());
   elements.employeeForm.addEventListener("submit", handleEmployeeSubmit);
+  elements.scanEmployeeUidBtn.addEventListener("click", beginEmployeeUidCapture);
   elements.clearEmployeeFormBtn.addEventListener("click", clearEmployeeForm);
   elements.employeeSearchInput.addEventListener("input", () => {
     state.employeeSearch = elements.employeeSearchInput.value;
@@ -800,6 +975,8 @@ function wireEvents() {
   elements.sampleDataBtn.addEventListener("click", loadSampleData);
   elements.connectSerialBtn.addEventListener("click", connectSerial);
   elements.disconnectSerialBtn.addEventListener("click", disconnectSerial);
+  elements.connectEmployeeSerialBtn.addEventListener("click", connectSerial);
+  elements.disconnectEmployeeSerialBtn.addEventListener("click", disconnectSerial);
   elements.demoScanBtn.addEventListener("click", async () => {
     if (!state.employees.length) {
       loadSampleData();
@@ -849,6 +1026,8 @@ function initialize() {
   }
 
   setView("dashboardView");
+  renderUidCaptureState();
+  renderEmployeeSerialStatus();
 }
 
 document.addEventListener("DOMContentLoaded", initialize);

@@ -168,7 +168,7 @@
             <form id="employeeForm" class="form-grid">
               <label>
                 <span>UID</span>
-                <input id="employeeUid" placeholder="A1B2C3D4" required />
+                <input id="employeeUid" placeholder="Tap Scan Card, then scan one" required />
               </label>
               <label>
                 <span>Employee ID</span>
@@ -190,6 +190,15 @@
                 <span>Phone</span>
                 <input id="employeePhone" placeholder="+91 9876543210" />
               </label>
+              <div class="scan-serial-row">
+                <button id="connectEmployeeSerialBtn" class="mini-btn" type="button">Connect reader</button>
+                <button id="disconnectEmployeeSerialBtn" class="mini-btn" type="button">Disconnect reader</button>
+                <span id="employeeSerialStatus" class="scan-hint">Reader disconnected</span>
+              </div>
+              <div class="scan-assign-row">
+                <button id="scanEmployeeUidBtn" class="mini-btn" type="button">Scan card to assign UID</button>
+                <span id="scanEmployeeUidHint" class="scan-hint">Ready to capture a UID</span>
+              </div>
               <div class="form-actions">
                 <button class="primary-btn" type="submit">Save employee</button>
                 <button id="clearEmployeeFormBtn" class="secondary-btn" type="button">Clear form</button>
