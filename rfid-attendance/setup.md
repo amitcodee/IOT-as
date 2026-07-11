@@ -275,7 +275,7 @@ void loop() {
 1. Open `rfid_wifi.ino` in Arduino IDE
 2. **Edit the 4 settings** at the top with your actual values
 3. Tools → Board → ESP32 Dev Module
-4. Tools → Port → select your ESP32 port
+4. Tools → Port → select your ESP32 port (e.g., COM5)
 5. Click Upload
 6. Open Serial Monitor (115200 baud) — you should see:
    ```

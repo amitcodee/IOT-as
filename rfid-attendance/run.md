@@ -55,7 +55,7 @@ WARNING: Use 3.3V NOT 5V. The RC522 runs on 3.3V.
 
 7. In Arduino IDE:
    - Tools > Board > select "ESP32 Dev Module"
-   - Tools > Port > select the COM port that appeared (like COM3 or COM4)
+   - Tools > Port > select the COM port that appeared (e.g., COM5)
 
 8. Click Upload button (arrow icon).
    If it fails, hold the BOOT button on ESP32 while uploading.

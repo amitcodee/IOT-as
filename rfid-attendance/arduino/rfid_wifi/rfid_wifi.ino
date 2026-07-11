@@ -22,7 +22,11 @@
 #include <SPI.h>
 #include <MFRC522.h>
 #include <Firebase_ESP_Client.h>
-#include <addons/TokenHelper.h>
+// Token helper callback
+void tokenStatusCallback(TokenInfo info) {
+  Serial.print("Token status: ");
+  Serial.println(info.status == token_status_ready ? "ready" : "not ready");
+}
 #include <time.h>
 
 // ============================================================
