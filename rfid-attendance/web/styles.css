@@ -774,6 +774,21 @@ h2 {
   color: var(--brand);
 }
 
+/* Portal Link */
+.emp-portal-link {
+  display: block;
+  text-align: center;
+  color: var(--brand);
+  font-size: 0.88rem;
+  font-weight: 500;
+  text-decoration: none;
+  margin-top: 4px;
+}
+
+.emp-portal-link:hover {
+  text-decoration: underline;
+}
+
 /* Empty State */
 .empty-state {
   color: var(--muted);

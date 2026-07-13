@@ -1,10 +1,6 @@
 const appConfig = window.__APP_CONFIG__ || { appName: "TechCADD Attendance", firebase: {} };
 
-const sampleEmployees = [
-  { uid: "A1B2C3D4", employeeId: "EMP001", name: "John Smith", department: "Engineering", role: "Engineer", phone: "+91 9000000001" },
-  { uid: "E5F6G7H8", employeeId: "EMP002", name: "Sarah Johnson", department: "Marketing", role: "Lead", phone: "+91 9000000002" },
-  { uid: "I9J0K1L2", employeeId: "EMP003", name: "Mike Wilson", department: "HR", role: "Coordinator", phone: "+91 9000000003" },
-];
+
 
 const state = {
   user: null,
@@ -38,6 +34,8 @@ const state = {
 };
 
 const elements = {};
+const scanCooldowns = new Map();
+const SCAN_COOLDOWN_MS = 90000; // 90 seconds cooldown per UID
 let employeesUnsub = null;
 let attendanceUnsub = null;
 let remarksUnsub = null;
@@ -710,6 +708,15 @@ async function processScan(rawUid, source = "manual") {
   if (state.captureUidForEmployee) {
     if (uid) completeEmployeeUidCapture(uid);
     return;
+  }
+
+  // Cooldown: ignore duplicate scans of the same UID within 30 seconds
+  if (uid && source === "serial") {
+    const lastScan = scanCooldowns.get(uid);
+    if (lastScan && now.getTime() - lastScan < SCAN_COOLDOWN_MS) {
+      return;
+    }
+    scanCooldowns.set(uid, now.getTime());
   }
 
   const employee = state.employees.find((e) => e.uid === uid);

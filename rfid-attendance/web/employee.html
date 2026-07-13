@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TechCADD - Employee Portal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="employee-styles.css" />
+</head>
+<body>
+
+  <!-- EMPLOYEE LOGIN -->
+  <section id="empLoginView" class="login-screen">
+    <div class="login-card glass-card">
+      <div class="login-copy">
+        <img src="logo.png" alt="TechCADD" class="login-logo" />
+        <p class="eyebrow">Employee Portal</p>
+        <h1>Check your attendance records.</h1>
+        <p class="hero-text">
+          Log in with your Employee ID or RFID UID to view your check-in, check-out, and working hours.
+        </p>
+      </div>
+      <form id="empLoginForm" class="login-form">
+        <label>
+          <span>Employee ID or UID</span>
+          <input id="empLoginId" type="text" placeholder="e.g. EMP001 or A1B2C3D4" required autocomplete="off" />
+        </label>
+        <button class="primary-btn wide-btn" type="submit">View My Attendance</button>
+        <p id="empLoginHint" class="support-note"></p>
+        <a href="index.html" class="emp-portal-link">Admin Login</a>
+      </form>
+    </div>
+  </section>
+
+  <!-- EMPLOYEE DASHBOARD -->
+  <div id="empDashboard" class="emp-dashboard hidden">
+
+    <!-- Header -->
+    <header class="emp-header glass-card">
+      <div class="emp-header-left">
+        <img src="logo.png" alt="TechCADD" class="topbar-logo" />
+        <div>
+          <p class="eyebrow">Employee Portal</p>
+          <h1 id="empWelcome">Welcome</h1>
+        </div>
+      </div>
+      <div class="emp-header-right">
+        <span class="status-pill" id="empInfoPill">-</span>
+        <button id="empLogoutBtn" class="secondary-btn" type="button">Logout</button>
+      </div>
+    </header>
+
+    <!-- Profile Card -->
+    <article class="panel glass-card emp-profile-card">
+      <div class="panel-head">
+        <div>
+          <p class="panel-tag">My Profile</p>
+          <h2 id="empProfileName">-</h2>
+        </div>
+      </div>
+      <div class="emp-profile-grid" id="empProfileGrid"></div>
+    </article>
+
+    <!-- Summary Metrics -->
+    <div class="metrics-grid emp-metrics">
+      <article class="metric-card glass-card">
+        <span>Total Days</span>
+        <strong id="empMetricTotal">0</strong>
+      </article>
+      <article class="metric-card glass-card">
+        <span>Present Days</span>
+        <strong id="empMetricPresent">0</strong>
+      </article>
+      <article class="metric-card glass-card">
+        <span>Completed Days</span>
+        <strong id="empMetricCompleted">0</strong>
+      </article>
+      <article class="metric-card glass-card">
+        <span>Total Hours</span>
+        <strong id="empMetricHours">0h 0m</strong>
+      </article>
+    </div>
+
+    <!-- Attendance Table -->
+    <article class="panel glass-card">
+      <div class="panel-head">
+        <div>
+          <p class="panel-tag">My Attendance</p>
+          <h2>Attendance History</h2>
+        </div>
+        <div class="inline-actions wrap-actions">
+          <select id="empMonthSelect"></select>
+          <input id="empFromDate" class="date-input" type="date" />
+          <input id="empToDate" class="date-input" type="date" />
+          <button id="empClearFilters" class="secondary-btn" type="button">Clear</button>
+        </div>
+      </div>
+
+      <!-- Month Summary -->
+      <div id="empMonthSummary" class="month-summary"></div>
+
+      <div class="table-wrap tall-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Check In</th>
+              <th>Check Out</th>
+              <th>Hours</th>
+              <th>Status</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="empAttendanceBody"></tbody>
+        </table>
+      </div>
+    </article>
+
+  </div>
+
+  <script src="/config.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+  <script src="employee-app.js"></script>
+</body>
+</html>

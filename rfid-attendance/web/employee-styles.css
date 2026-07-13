@@ -1,0 +1,81 @@
+/* Employee Portal Styles */
+
+.emp-portal-link {
+  display: block;
+  text-align: center;
+  color: var(--brand);
+  font-size: 0.88rem;
+  font-weight: 500;
+  text-decoration: none;
+  margin-top: 4px;
+}
+
+.emp-portal-link:hover {
+  text-decoration: underline;
+}
+
+.emp-dashboard {
+  width: min(1100px, calc(100vw - 32px));
+  margin: 0 auto;
+  padding: 16px 0 40px;
+  display: grid;
+  gap: 16px;
+}
+
+.emp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 18px 20px;
+}
+
+.emp-header-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.emp-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.emp-profile-card {
+  padding: 20px;
+}
+
+.emp-profile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.emp-metrics {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+@media (max-width: 980px) {
+  .emp-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .emp-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .emp-dashboard {
+    width: 100%;
+    padding: 12px 12px 24px;
+  }
+  .emp-metrics {
+    grid-template-columns: 1fr;
+  }
+  .emp-header {
+    padding: 14px;
+  }
+}
