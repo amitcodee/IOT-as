@@ -154,6 +154,7 @@ function cacheElements() {
     "drawerClearFiltersBtn", "closeDrawerBtn",
     "drawerMonthSelect", "drawerMonthSummary",
     "drawerRemarkDate", "drawerRemarkInput", "drawerAddRemarkBtn", "drawerRemarkList",
+    "sidebar", "sidebarBackdrop", "openSidebarBtn", "closeSidebarBtn",
   ].forEach((id) => {
     elements[id] = document.getElementById(id);
   });
@@ -887,15 +888,31 @@ async function connectSerial() {
 
 // ---- WIRING ----
 
+function openSidebar() {
+  elements.sidebar.classList.add("is-open");
+  elements.sidebarBackdrop.classList.remove("hidden");
+}
+
+function closeSidebar() {
+  elements.sidebar.classList.remove("is-open");
+  elements.sidebarBackdrop.classList.add("hidden");
+}
+
 function bindNavButtons() {
   document.querySelectorAll("[data-view]").forEach((btn) => {
-    btn.addEventListener("click", () => setView(btn.dataset.view));
+    btn.addEventListener("click", () => {
+      setView(btn.dataset.view);
+      closeSidebar();
+    });
   });
 }
 
 function wireEvents() {
+  elements.openSidebarBtn.addEventListener("click", openSidebar);
+  elements.closeSidebarBtn.addEventListener("click", closeSidebar);
+  elements.sidebarBackdrop.addEventListener("click", closeSidebar);
   elements.loginForm.addEventListener("submit", handleLogin);
-  elements.signOutBtn.addEventListener("click", () => state.auth?.signOut());
+  elements.signOutBtn.addEventListener("click", () => { closeSidebar(); state.auth?.signOut(); });
   elements.signOutBtnSecondary.addEventListener("click", () => state.auth?.signOut());
   elements.employeeForm.addEventListener("submit", handleEmployeeSubmit);
   elements.scanEmployeeUidBtn.addEventListener("click", beginEmployeeUidCapture);

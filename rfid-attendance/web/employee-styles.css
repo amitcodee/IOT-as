@@ -34,12 +34,18 @@
   display: flex;
   align-items: center;
   gap: 14px;
+  min-width: 0;
+}
+
+.emp-header-left h1 {
+  word-break: break-word;
 }
 
 .emp-header-right {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-shrink: 0;
 }
 
 .emp-profile-card {
@@ -57,25 +63,191 @@
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+/* Mobile card layout for attendance table */
+.emp-attendance-card {
+  display: none;
+}
+
+/* ---- Responsive: Tablet ---- */
 @media (max-width: 980px) {
   .emp-header {
     flex-direction: column;
     align-items: flex-start;
   }
+  .emp-header-right {
+    width: 100%;
+    justify-content: space-between;
+  }
   .emp-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .emp-profile-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  }
 }
 
+/* ---- Responsive: Mobile ---- */
 @media (max-width: 640px) {
   .emp-dashboard {
     width: 100%;
-    padding: 12px 12px 24px;
+    padding: 8px 8px 24px;
+    gap: 10px;
+  }
+  .emp-header {
+    padding: 14px;
+    gap: 10px;
+    border-radius: var(--radius-lg);
+  }
+  .emp-header-left {
+    gap: 10px;
+  }
+  .emp-header-left .topbar-logo {
+    height: 22px;
+  }
+  .emp-header-left .eyebrow {
+    font-size: 0.6rem;
+  }
+  .emp-header-left h1 {
+    font-size: 1.1rem;
+  }
+  .emp-header-right .status-pill {
+    font-size: 0.72rem;
+    padding: 0 8px;
+    min-height: 28px;
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .emp-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .emp-metrics .metric-card {
+    padding: 12px 14px;
+  }
+  .emp-metrics .metric-card strong {
+    font-size: 1.4rem;
+  }
+  .emp-profile-card {
+    padding: 14px;
+  }
+  .emp-profile-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .emp-profile-grid .setting-card {
+    padding: 10px;
+  }
+  .emp-profile-grid .setting-card strong {
+    font-size: 0.82rem;
+    word-break: break-all;
+  }
+
+  /* Convert table to card layout on mobile */
+  .emp-dashboard .table-wrap table thead {
+    display: none;
+  }
+  .emp-dashboard .table-wrap table,
+  .emp-dashboard .table-wrap table tbody {
+    display: block;
+    width: 100%;
+  }
+  .emp-dashboard .table-wrap table tr {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 12px;
+    padding: 12px;
+    margin-bottom: 8px;
+    border: 1px solid var(--panel-border);
+    border-radius: var(--radius-sm);
+    background: var(--bg);
+  }
+  .emp-dashboard .table-wrap table tr:hover td {
+    background: transparent;
+  }
+  .emp-dashboard .table-wrap table td {
+    border: none;
+    padding: 2px 0;
+    font-size: 0.84rem;
+  }
+  .emp-dashboard .table-wrap table td::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 2px;
+  }
+  /* Status column spans full width */
+  .emp-dashboard .table-wrap table td:nth-child(5) {
+    grid-column: 1 / -1;
+  }
+  /* Action column spans full width */
+  .emp-dashboard .table-wrap table td:nth-child(6) {
+    grid-column: 1 / -1;
+  }
+  .emp-dashboard .table-wrap table td:nth-child(6) .mini-btn {
+    width: 100%;
+  }
+
+  /* Filters stacking */
+  .emp-dashboard .inline-actions {
+    width: 100%;
+  }
+  .emp-dashboard .inline-actions select,
+  .emp-dashboard .inline-actions input {
+    width: 100%;
+    min-width: 0;
+  }
+  .emp-dashboard .inline-actions .secondary-btn {
+    width: 100%;
+  }
+
+  /* Month summary */
+  .emp-dashboard .month-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+  .emp-dashboard .month-stat {
+    padding: 8px;
+  }
+  .emp-dashboard .month-stat strong {
+    font-size: 1rem;
+  }
+
+  /* Panel padding */
+  .emp-dashboard .panel {
+    padding: 14px;
+    border-radius: var(--radius-lg);
+  }
+  .emp-dashboard .panel-head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+}
+
+/* ---- Responsive: Very small screens ---- */
+@media (max-width: 380px) {
+  .emp-dashboard {
+    padding: 6px 6px 20px;
+  }
+  .emp-header-left h1 {
+    font-size: 0.95rem;
   }
   .emp-metrics {
     grid-template-columns: 1fr;
   }
-  .emp-header {
-    padding: 14px;
+  .emp-profile-grid {
+    grid-template-columns: 1fr;
+  }
+  .emp-dashboard .month-summary {
+    grid-template-columns: 1fr;
+  }
+  .emp-dashboard .table-wrap table tr {
+    grid-template-columns: 1fr;
   }
 }

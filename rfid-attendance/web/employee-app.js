@@ -265,12 +265,12 @@ function renderAttendance() {
       ? `<button class="mini-btn clear-checkout-btn" data-datekey="${record.dateKey}" data-uid="${record.uid}" type="button">Clear Checkout</button>`
       : "-";
     return `<tr>
-      <td>${record.dateKey || "-"}</td>
-      <td>${record.checkIn || "-"}</td>
-      <td>${record.checkOut || "-"}</td>
-      <td>${hours}</td>
-      <td><span class="pill ${pillClass}">${status}</span></td>
-      <td>${actionHtml}</td>
+      <td data-label="Date">${record.dateKey || "-"}</td>
+      <td data-label="Check In">${record.checkIn || "-"}</td>
+      <td data-label="Check Out">${record.checkOut || "-"}</td>
+      <td data-label="Hours">${hours}</td>
+      <td data-label="Status"><span class="pill ${pillClass}">${status}</span></td>
+      <td data-label="Action">${actionHtml}</td>
     </tr>`;
   }).join("");
 
