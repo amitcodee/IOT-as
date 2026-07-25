@@ -14,13 +14,16 @@ const state = {
   attendanceSearch: "",
   attendanceFrom: "",
   attendanceTo: "",
+  attendanceEmployeeUid: "",
   drawerFrom: "",
   drawerTo: "",
   drawerMonth: "",
+  calendarMonth: "",
+  calendarPageMonth: "",
+  calendarSelectedDate: "",
   view: "dashboardView",
   serialStatus: "Disconnected",
   syncStatus: "Local demo",
-  captureUidForEmployee: false,
   liveOutput: {
     status: "info",
     message: "Sign in to manage attendance",
@@ -46,6 +49,17 @@ function todayKey(date = new Date()) {
 
 function formatTime(date = new Date()) {
   return date.toTimeString().slice(0, 8);
+}
+
+function formatTimeAmPm(timeString) {
+  if (!timeString) return "";
+  const [hStr, mStr] = timeString.split(":");
+  let h = parseInt(hStr, 10);
+  if (Number.isNaN(h)) return "";
+  const period = h >= 12 ? "PM" : "AM";
+  h = h % 12;
+  if (h === 0) h = 12;
+  return `${h}:${mStr || "00"} ${period}`;
 }
 
 function normalizeUid(value) {
@@ -96,7 +110,44 @@ function normalizeAttendanceRecord(record) {
     employeeName: record.employeeName,
     checkIn: record.checkIn || null,
     checkOut: record.checkOut || null,
+    checkInLocation: record.checkInLocation || null,
+    checkOutLocation: record.checkOutLocation || null,
   };
+}
+
+function getCurrentLocation(timeoutMs = 8000) {
+  return new Promise((resolve) => {
+    if (!("geolocation" in navigator)) {
+      resolve(null);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        resolve({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+          accuracy: position.coords.accuracy,
+        });
+      },
+      () => resolve(null),
+      { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 30000 },
+    );
+  });
+}
+
+function locationMapsUrl(location) {
+  if (!location) return "";
+  return `https://www.google.com/maps?q=${location.lat},${location.lng}`;
+}
+
+function locationCell(record) {
+  const inLink = record.checkInLocation
+    ? `<a href="${locationMapsUrl(record.checkInLocation)}" target="_blank" rel="noopener noreferrer" class="mini-btn" title="Check-in location">In</a>`
+    : "";
+  const outLink = record.checkOutLocation
+    ? `<a href="${locationMapsUrl(record.checkOutLocation)}" target="_blank" rel="noopener noreferrer" class="mini-btn" title="Check-out location">Out</a>`
+    : "";
+  return inLink || outLink ? `${inLink} ${outLink}`.trim() : "-";
 }
 
 function getEmployeeName(uid) {
@@ -129,23 +180,49 @@ function getMonthLabel(ym) {
   return `${names[parseInt(m, 10) - 1]} ${y}`;
 }
 
+function daysInMonth(ym) {
+  const [y, m] = ym.split("-").map(Number);
+  return new Date(y, m, 0).getDate();
+}
+
+function firstWeekdayOfMonth(ym) {
+  const [y, m] = ym.split("-").map(Number);
+  return new Date(y, m - 1, 1).getDay();
+}
+
+function shiftMonth(ym, delta) {
+  const [y, m] = ym.split("-").map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function escapeHtml(value) {
+  return String(value || "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+
+function truncateText(text, max) {
+  const s = String(text || "");
+  return s.length > max ? `${s.slice(0, max - 1)}…` : s;
+}
+
 function cacheElements() {
   [
     "loginView", "appShell", "loginForm", "loginEmail", "loginPassword", "loginHint",
     "topbarTitle", "sidebarTitle", "currentUserLabel", "authStatusPill", "syncStatusPill",
     "signOutBtn", "signOutBtnSecondary",
-    "dashboardView", "employeesView", "attendanceView", "settingsView",
+    "dashboardView", "employeeAddView", "managerView", "attendanceTodayView",
+    "attendanceView", "calendarView", "settingsView",
     "metricEmployees", "metricPresent", "metricCheckedOut", "metricLate",
     "connectSerialBtn", "disconnectSerialBtn", "demoScanBtn",
     "manualUidInput", "scanFromInputBtn",
     "serialBadge", "syncBadge", "serialHint", "scannerDot", "liveOutput", "scanFeed",
     "todayAttendanceBody",
     "employeeForm", "employeeUid", "employeeId", "employeeName",
-    "employeeDepartment", "employeeRole", "employeePhone",
-    "connectEmployeeSerialBtn", "disconnectEmployeeSerialBtn", "employeeSerialStatus",
-    "scanEmployeeUidBtn", "scanEmployeeUidHint", "clearEmployeeFormBtn",
+    "employeeDepartment", "employeeRole", "employeePhone", "clearEmployeeFormBtn",
     "employeeSearchInput", "employeeTableBody",
-    "attendanceFromInput", "attendanceToInput", "attendanceSearchInput",
+    "attendanceEmployeeFilter", "attendanceFromInput", "attendanceToInput", "attendanceSearchInput",
     "clearAttendanceFiltersBtn", "attendanceTableBody",
     "sampleDataBtn", "settingAppName", "settingProjectId",
     "settingNewPassword", "settingConfirmPassword", "updatePasswordBtn", "passwordHint",
@@ -154,6 +231,9 @@ function cacheElements() {
     "drawerClearFiltersBtn", "closeDrawerBtn",
     "drawerMonthSelect", "drawerMonthSummary",
     "drawerRemarkDate", "drawerRemarkInput", "drawerAddRemarkBtn", "drawerRemarkList",
+    "drawerCalendarGrid", "drawerCalendarLabel", "drawerCalPrevBtn", "drawerCalNextBtn",
+    "calPrevBtn", "calNextBtn", "calLabel", "calGrid",
+    "calSideDateTag", "calSideDateLabel", "calSideList",
     "sidebar", "sidebarBackdrop", "openSidebarBtn", "closeSidebarBtn",
   ].forEach((id) => {
     elements[id] = document.getElementById(id);
@@ -223,33 +303,48 @@ function renderLiveOutput() {
   elements.liveOutput.textContent = formatJson(state.liveOutput || { status: "info", message: "Ready" });
 }
 
-function renderUidCaptureState() {
-  if (!elements.scanEmployeeUidBtn || !elements.scanEmployeeUidHint) return;
-  if (state.captureUidForEmployee) {
-    elements.scanEmployeeUidBtn.textContent = "Waiting for scanned UID...";
-    elements.scanEmployeeUidBtn.disabled = true;
-    elements.scanEmployeeUidHint.textContent = "Tap the RFID card on the reader now.";
-    return;
-  }
-  elements.scanEmployeeUidBtn.textContent = "Scan Card to Assign UID";
-  elements.scanEmployeeUidBtn.disabled = false;
-  elements.scanEmployeeUidHint.textContent = "Ready to capture";
-}
-
-function renderEmployeeSerialStatus() {
-  if (!elements.employeeSerialStatus) return;
-  elements.employeeSerialStatus.textContent = state.serialStatus === "Connected" || state.serialStatus === "Reader ready"
-    ? `Reader ${state.serialStatus.toLowerCase()}`
-    : "Reader disconnected";
-}
+const VIEW_LABELS = {
+  dashboardView: "Dashboard",
+  employeeAddView: "Add Employee",
+  managerView: "Manager",
+  attendanceTodayView: "Attendance Today",
+  attendanceView: "Attendance",
+  calendarView: "Calendar",
+  settingsView: "Settings",
+};
 
 function setView(viewId) {
   state.view = viewId;
   document.querySelectorAll(".view").forEach((s) => s.classList.toggle("is-active", s.id === viewId));
   document.querySelectorAll(".nav-link").forEach((b) => b.classList.toggle("is-active", b.dataset.view === viewId));
-  const labels = { dashboardView: "Dashboard", employeesView: "Employees", attendanceView: "Attendance", settingsView: "Settings" };
-  elements.topbarTitle.textContent = labels[viewId] || "Dashboard";
-  elements.sidebarTitle.textContent = labels[viewId] || "Dashboard";
+  elements.topbarTitle.textContent = VIEW_LABELS[viewId] || "Dashboard";
+  elements.sidebarTitle.textContent = VIEW_LABELS[viewId] || "Dashboard";
+}
+
+function router() {
+  const raw = (location.hash || "").replace(/^#\/?/, "");
+  const parts = raw.split("/").filter(Boolean);
+  const [section, sub] = parts;
+
+  if (section === "calendar") {
+    setView("calendarView");
+    if (sub && /^\d{4}-\d{2}-\d{2}$/.test(sub)) {
+      state.calendarPageMonth = sub.slice(0, 7);
+      state.calendarSelectedDate = sub;
+    } else {
+      state.calendarPageMonth = state.calendarPageMonth || todayKey().slice(0, 7);
+    }
+    renderCompanyCalendar();
+    renderCalendarSidePanel();
+    return;
+  }
+
+  if (section === "employees" && sub === "manager") { setView("managerView"); return; }
+  if (section === "employees") { setView("employeeAddView"); return; }
+  if (section === "attendance" && sub === "today") { setView("attendanceTodayView"); return; }
+  if (section === "attendance") { setView("attendanceView"); return; }
+  if (section === "settings") { setView("settingsView"); return; }
+  setView("dashboardView");
 }
 
 function setDefaultLiveOutput() {
@@ -270,21 +365,6 @@ function handleFirestoreError(error) {
   state.liveOutput = { status: "error", message };
   renderStatusBadges();
   renderLiveOutput();
-}
-
-function beginEmployeeUidCapture() {
-  state.captureUidForEmployee = true;
-  state.liveOutput = { status: "info", message: "Waiting for a card scan to assign the employee UID" };
-  renderAll();
-  if (state.serialStatus !== "Connected" && !state.serialConnecting) connectSerial();
-}
-
-function completeEmployeeUidCapture(uid) {
-  elements.employeeUid.value = uid;
-  state.captureUidForEmployee = false;
-  state.liveOutput = { status: "success", message: `Captured UID ${uid}` };
-  renderAll();
-  elements.employeeUid.focus();
 }
 
 // ---- DATA ----
@@ -367,21 +447,24 @@ function attendanceRow(record) {
   const hours = record.checkIn && record.checkOut ? calcHours(record.checkIn, record.checkOut) : "-";
   const status = calcStatus(record);
   const pillClass = statusPillClass(status);
+  const day = record.dateKey ? getWeekdayShort(record.dateKey) : "-";
   return `<tr>
     <td>${record.dateKey || "-"}</td>
+    <td>${day}</td>
     <td>${getEmployeeName(record.uid)}</td>
     <td>${record.uid}</td>
-    <td>${record.checkIn || "-"}</td>
-    <td>${record.checkOut || "-"}</td>
+    <td>${record.checkIn ? formatTimeAmPm(record.checkIn) : "-"}</td>
+    <td>${record.checkOut ? formatTimeAmPm(record.checkOut) : "-"}</td>
     <td>${hours}</td>
     <td><span class="pill ${pillClass}">${status}</span></td>
+    <td>${locationCell(record)}</td>
   </tr>`;
 }
 
 function renderTodayAttendance() {
   const today = todayKey();
   const rows = state.attendance.filter((r) => r.dateKey === today).map(attendanceRow).join("");
-  elements.todayAttendanceBody.innerHTML = rows || '<tr><td colspan="7" class="empty-state">No attendance records for today.</td></tr>';
+  elements.todayAttendanceBody.innerHTML = rows || '<tr><td colspan="9" class="empty-state">No attendance records for today.</td></tr>';
 }
 
 function employeeRow(employee) {
@@ -417,13 +500,25 @@ function renderEmployeeTable() {
   });
 }
 
+function renderAttendanceEmployeeFilter() {
+  if (!elements.attendanceEmployeeFilter) return;
+  const sortedEmployees = [...state.employees].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  const options = ['<option value="">All Employees</option>']
+    .concat(sortedEmployees.map((e) => `<option value="${e.uid}" ${e.uid === state.attendanceEmployeeUid ? "selected" : ""}>${escapeHtml(e.name)}</option>`));
+  elements.attendanceEmployeeFilter.innerHTML = options.join("");
+}
+
 function renderAttendanceTable() {
+  renderAttendanceEmployeeFilter();
+
   const filtered = filterBySearch(
-    state.attendance.filter((r) => isWithinDateRange(r.dateKey, state.attendanceFrom, state.attendanceTo)),
+    state.attendance
+      .filter((r) => isWithinDateRange(r.dateKey, state.attendanceFrom, state.attendanceTo))
+      .filter((r) => !state.attendanceEmployeeUid || r.uid === state.attendanceEmployeeUid),
     state.attendanceSearch,
     ["dateKey", "employeeName", "uid"],
   );
-  elements.attendanceTableBody.innerHTML = filtered.map(attendanceRow).join("") || '<tr><td colspan="7" class="empty-state">No attendance records match the filters.</td></tr>';
+  elements.attendanceTableBody.innerHTML = filtered.map(attendanceRow).join("") || '<tr><td colspan="9" class="empty-state">No attendance records match the filters.</td></tr>';
 }
 
 function renderDrawer() {
@@ -431,9 +526,11 @@ function renderDrawer() {
   if (!employee) {
     elements.drawerEmployeeName.textContent = "Select an employee";
     elements.drawerSummary.innerHTML = '<div class="empty-state">Choose an employee to view details.</div>';
-    elements.drawerAttendanceBody.innerHTML = '<tr><td colspan="5" class="empty-state">No employee selected.</td></tr>';
+    elements.drawerAttendanceBody.innerHTML = '<tr><td colspan="6" class="empty-state">No employee selected.</td></tr>';
     elements.drawerMonthSummary.innerHTML = "";
     elements.drawerRemarkList.innerHTML = "";
+    elements.drawerCalendarGrid.innerHTML = "";
+    elements.drawerCalendarLabel.textContent = "-";
     return;
   }
 
@@ -445,6 +542,8 @@ function renderDrawer() {
     <div class="setting-card"><span>Role</span><strong>${employee.role}</strong></div>
     <div class="setting-card"><span>Phone</span><strong>${employee.phone || "-"}</strong></div>
   `;
+
+  renderDrawerCalendar(employee);
 
   // Remarks
   const empRemarks = state.remarks.filter((r) => r.uid === employee.uid);
@@ -515,10 +614,195 @@ function renderDrawer() {
       <td>${record.checkOut || "-"}</td>
       <td>${hours}</td>
       <td><span class="pill ${pillClass}">${status}</span></td>
+      <td>${locationCell(record)}</td>
     </tr>`;
   }).join("");
 
-  elements.drawerAttendanceBody.innerHTML = rows || '<tr><td colspan="5" class="empty-state">No attendance records found.</td></tr>';
+  elements.drawerAttendanceBody.innerHTML = rows || '<tr><td colspan="6" class="empty-state">No attendance records found.</td></tr>';
+}
+
+const CALENDAR_WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function renderDrawerCalendar(employee) {
+  const ym = state.calendarMonth || todayKey().slice(0, 7);
+  elements.drawerCalendarLabel.textContent = getMonthLabel(ym);
+
+  const empRecords = state.attendance.filter((r) => r.uid === employee.uid);
+  const empRemarks = state.remarks.filter((r) => r.uid === employee.uid);
+  const today = todayKey();
+  const total = daysInMonth(ym);
+  const startWeekday = firstWeekdayOfMonth(ym);
+
+  let html = CALENDAR_WEEKDAYS.map((d) => `<div class="calendar-weekday">${d}</div>`).join("");
+  for (let i = 0; i < startWeekday; i++) {
+    html += '<div class="calendar-cell is-empty"></div>';
+  }
+
+  for (let day = 1; day <= total; day++) {
+    const dateKey = `${ym}-${String(day).padStart(2, "0")}`;
+    const record = empRecords.find((r) => r.dateKey === dateKey);
+    const remark = empRemarks.find((r) => r.date === dateKey);
+    const status = record ? calcStatus(record) : (dateKey < today ? "Absent" : "");
+    const pillClass = status ? statusPillClass(status) : "";
+    const cellClasses = ["calendar-cell"];
+    if (dateKey === today) cellClasses.push("is-today");
+    if (remark) cellClasses.push("has-remark");
+
+    const checkInTime = record?.checkIn ? formatTimeAmPm(record.checkIn) : "";
+    const checkOutTime = record?.checkOut ? formatTimeAmPm(record.checkOut) : "";
+
+    const tooltipParts = [];
+    if (checkInTime) tooltipParts.push(`Check-in: ${checkInTime}`);
+    if (checkOutTime) tooltipParts.push(`Check-out: ${checkOutTime}`);
+    if (remark) tooltipParts.push(`Remark: ${remark.text}`);
+
+    html += `<div class="${cellClasses.join(" ")}" data-cal-date="${dateKey}" title="${escapeHtml(tooltipParts.join(" | "))}">
+      <div class="cal-cell-head">
+        <span class="cal-day-num">${day}</span>
+        ${status ? `<span class="cal-status-dot ${pillClass}"></span>` : ""}
+      </div>
+      ${checkInTime ? `<span class="cal-time cal-time-in">In ${checkInTime}</span>` : ""}
+      ${checkOutTime ? `<span class="cal-time cal-time-out">Out ${checkOutTime}</span>` : ""}
+      ${remark ? `<span class="cal-remark-badge">${escapeHtml(truncateText(remark.text, 14))}</span>` : ""}
+    </div>`;
+  }
+
+  elements.drawerCalendarGrid.innerHTML = html;
+
+  elements.drawerCalendarGrid.querySelectorAll("[data-cal-date]").forEach((cell) => {
+    cell.addEventListener("click", () => {
+      elements.drawerRemarkDate.value = cell.getAttribute("data-cal-date");
+      elements.drawerRemarkInput.focus();
+    });
+  });
+}
+
+function getWeekdayShort(dateKey) {
+  const [y, m, d] = dateKey.split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][date.getDay()];
+}
+
+function formatDateLabel(dateKey) {
+  const [y, m, d] = dateKey.split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${weekdays[date.getDay()]}, ${months[m - 1]} ${d} ${y}`;
+}
+
+function renderCompanyCalendar() {
+  if (!elements.calGrid) return;
+  const ym = state.calendarPageMonth || todayKey().slice(0, 7);
+  elements.calLabel.textContent = getMonthLabel(ym);
+
+  const today = todayKey();
+  const total = daysInMonth(ym);
+  const startWeekday = firstWeekdayOfMonth(ym);
+  const MAX_NAMES = 3;
+
+  let html = CALENDAR_WEEKDAYS.map((d) => `<div class="calendar-weekday">${d}</div>`).join("");
+  for (let i = 0; i < startWeekday; i++) {
+    html += '<div class="calendar-cell is-empty"></div>';
+  }
+
+  const MAX_REMARKS = 2;
+
+  for (let day = 1; day <= total; day++) {
+    const dateKey = `${ym}-${String(day).padStart(2, "0")}`;
+    const dayRecords = state.attendance.filter((r) => r.dateKey === dateKey && r.checkIn);
+    const names = dayRecords.map((r) => getEmployeeName(r.uid));
+    const shown = names.slice(0, MAX_NAMES);
+    const extra = names.length - shown.length;
+
+    const dayRemarks = state.remarks.filter((r) => r.date === dateKey);
+    const remarkLines = dayRemarks.map((r) => `${getEmployeeName(r.uid)}: ${r.text}`);
+    const shownRemarks = remarkLines.slice(0, MAX_REMARKS);
+    const extraRemarks = remarkLines.length - shownRemarks.length;
+
+    const cellClasses = ["calendar-cell", "company-cal-cell"];
+    if (dateKey === today) cellClasses.push("is-today");
+    if (dateKey === state.calendarSelectedDate) cellClasses.push("is-selected");
+    if (names.length) cellClasses.push("has-people");
+    if (dayRemarks.length) cellClasses.push("has-remark");
+
+    const tooltipParts = [];
+    if (names.length) tooltipParts.push(names.join(", "));
+    if (remarkLines.length) tooltipParts.push(remarkLines.join(" | "));
+
+    html += `<div class="${cellClasses.join(" ")}" data-cal-date="${dateKey}" title="${escapeHtml(tooltipParts.join(" — "))}">
+      <span class="cal-day-num">${day}</span>
+      <div class="cal-name-list">
+        ${shown.map((n) => `<span class="cal-name-chip">${escapeHtml(truncateText(n, 10))}</span>`).join("")}
+        ${extra > 0 ? `<span class="cal-name-chip cal-name-more">+${extra}</span>` : ""}
+      </div>
+      ${remarkLines.length ? `<div class="cal-name-list">
+        ${shownRemarks.map((line) => `<span class="cal-remark-badge">${escapeHtml(truncateText(line, 16))}</span>`).join("")}
+        ${extraRemarks > 0 ? `<span class="cal-remark-badge cal-name-more">+${extraRemarks}</span>` : ""}
+      </div>` : ""}
+    </div>`;
+  }
+
+  elements.calGrid.innerHTML = html;
+
+  elements.calGrid.querySelectorAll("[data-cal-date]").forEach((cell) => {
+    cell.addEventListener("click", () => {
+      location.hash = `#calendar/${cell.getAttribute("data-cal-date")}`;
+    });
+  });
+}
+
+function renderCalendarSidePanel() {
+  if (!elements.calSideList) return;
+  const dateKey = state.calendarSelectedDate;
+
+  if (!dateKey) {
+    elements.calSideDateTag.textContent = "Select a date";
+    elements.calSideDateLabel.textContent = "-";
+    elements.calSideList.innerHTML = '<div class="empty-state">Click a day on the calendar to see who was present.</div>';
+    return;
+  }
+
+  const records = state.attendance
+    .filter((r) => r.dateKey === dateKey && r.checkIn)
+    .sort((a, b) => (a.checkIn || "").localeCompare(b.checkIn || ""));
+  const dayRemarks = state.remarks.filter((r) => r.date === dateKey);
+
+  elements.calSideDateTag.textContent = "Attendance";
+  elements.calSideDateLabel.textContent = formatDateLabel(dateKey);
+
+  if (!records.length && !dayRemarks.length) {
+    elements.calSideList.innerHTML = '<div class="empty-state">No attendance or remarks on this date.</div>';
+    return;
+  }
+
+  const attendanceHtml = records.length
+    ? records.map((r) => `
+      <div class="cal-side-item">
+        <div>
+          <strong>${escapeHtml(getEmployeeName(r.uid))}</strong>
+          <span class="cal-side-sub">${escapeHtml(getEmployeeId(r.uid))}</span>
+        </div>
+        <div class="cal-side-times">
+          <span class="cal-time cal-time-in">In ${formatTimeAmPm(r.checkIn)}</span>
+          ${r.checkOut ? `<span class="cal-time cal-time-out">Out ${formatTimeAmPm(r.checkOut)}</span>` : ""}
+        </div>
+      </div>
+    `).join("")
+    : '<div class="empty-state" style="font-size:0.85rem;">No one checked in on this date.</div>';
+
+  const remarksHtml = dayRemarks.length
+    ? `<div class="drawer-section-title" style="margin-top:16px;">Remarks</div>${dayRemarks.map((r) => `
+      <div class="cal-side-item">
+        <div>
+          <strong>${escapeHtml(getEmployeeName(r.uid))}</strong>
+          <span class="cal-side-sub">${escapeHtml(r.text)}</span>
+        </div>
+      </div>
+    `).join("")}`
+    : "";
+
+  elements.calSideList.innerHTML = attendanceHtml + remarksHtml;
 }
 
 function renderScanFeed() {
@@ -539,22 +823,20 @@ function renderAll() {
   if (!state.user) return;
   renderStatusBadges();
   renderLiveOutput();
-  renderUidCaptureState();
-  renderEmployeeSerialStatus();
   renderMetrics();
   renderTodayAttendance();
   renderEmployeeTable();
   renderAttendanceTable();
   renderDrawer();
   renderScanFeed();
+  renderCompanyCalendar();
+  renderCalendarSidePanel();
 }
 
 // ---- ACTIONS ----
 
 function clearEmployeeForm() {
   elements.employeeForm.reset();
-  state.captureUidForEmployee = false;
-  renderUidCaptureState();
   elements.employeeUid.focus();
 }
 
@@ -567,7 +849,7 @@ function fillEmployeeForm(uid) {
   elements.employeeDepartment.value = emp.department || "";
   elements.employeeRole.value = emp.role || "";
   elements.employeePhone.value = emp.phone || "";
-  setView("employeesView");
+  location.hash = "#employees/add";
 }
 
 function openEmployeeDrawer(uid) {
@@ -575,6 +857,7 @@ function openEmployeeDrawer(uid) {
   state.drawerFrom = "";
   state.drawerTo = "";
   state.drawerMonth = "";
+  state.calendarMonth = todayKey().slice(0, 7);
   elements.drawerFromInput.value = "";
   elements.drawerToInput.value = "";
   elements.drawerRemarkInput.value = "";
@@ -706,11 +989,6 @@ async function processScan(rawUid, source = "manual") {
   const time = formatTime(now);
   const dateKey = todayKey(now);
 
-  if (state.captureUidForEmployee) {
-    if (uid) completeEmployeeUidCapture(uid);
-    return;
-  }
-
   // Cooldown: ignore duplicate scans of the same UID within 30 seconds
   if (uid && source === "serial") {
     const lastScan = scanCooldowns.get(uid);
@@ -741,8 +1019,9 @@ async function processScan(rawUid, source = "manual") {
   let daily = await getAttendanceRecord(uid, dateKey);
 
   if (!daily) {
-    daily = { uid, employeeId: employee.employeeId, employeeName: employee.name, dateKey, checkIn: time, checkOut: null };
-    state.liveOutput = { status: "success", type: "CHECK_IN", employee: employee.name, employee_id: employee.employeeId, check_in: time, uid };
+    const checkInLocation = await getCurrentLocation();
+    daily = { uid, employeeId: employee.employeeId, employeeName: employee.name, dateKey, checkIn: time, checkOut: null, checkInLocation };
+    state.liveOutput = { status: "success", type: "CHECK_IN", employee: employee.name, employee_id: employee.employeeId, check_in: time, uid, location: checkInLocation };
     state.scanFeed.unshift({ uid, type: "CHECK_IN", name: employee.name, message: `${employee.name} checked in`, time, source });
     state.scanFeed = state.scanFeed.slice(0, 8);
     state.attendance.unshift(daily);
@@ -752,8 +1031,10 @@ async function processScan(rawUid, source = "manual") {
   }
 
   if (!daily.checkOut) {
+    const checkOutLocation = await getCurrentLocation();
     daily.checkOut = time;
-    state.liveOutput = { status: "success", type: "CHECK_OUT", employee: employee.name, employee_id: employee.employeeId, check_in: daily.checkIn, check_out: time, uid };
+    daily.checkOutLocation = checkOutLocation;
+    state.liveOutput = { status: "success", type: "CHECK_OUT", employee: employee.name, employee_id: employee.employeeId, check_in: daily.checkIn, check_out: time, uid, location: checkOutLocation };
     state.scanFeed.unshift({ uid, type: "CHECK_OUT", name: employee.name, message: `${employee.name} checked out`, time, source });
     state.scanFeed = state.scanFeed.slice(0, 8);
     const idx = state.attendance.findIndex((e) => e.uid === uid && e.dateKey === dateKey);
@@ -882,7 +1163,6 @@ async function connectSerial() {
   } finally {
     state.serialConnecting = false;
     elements.connectSerialBtn.disabled = false;
-    if (elements.connectEmployeeSerialBtn) elements.connectEmployeeSerialBtn.disabled = false;
   }
 }
 
@@ -899,12 +1179,18 @@ function closeSidebar() {
 }
 
 function bindNavButtons() {
-  document.querySelectorAll("[data-view]").forEach((btn) => {
+  document.querySelectorAll("[data-route]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      setView(btn.dataset.view);
       closeSidebar();
+      const target = `#${btn.dataset.route}`;
+      if (location.hash === target) {
+        router();
+      } else {
+        location.hash = target;
+      }
     });
   });
+  window.addEventListener("hashchange", router);
 }
 
 function wireEvents() {
@@ -915,7 +1201,6 @@ function wireEvents() {
   elements.signOutBtn.addEventListener("click", () => { closeSidebar(); state.auth?.signOut(); });
   elements.signOutBtnSecondary.addEventListener("click", () => state.auth?.signOut());
   elements.employeeForm.addEventListener("submit", handleEmployeeSubmit);
-  elements.scanEmployeeUidBtn.addEventListener("click", beginEmployeeUidCapture);
   elements.clearEmployeeFormBtn.addEventListener("click", clearEmployeeForm);
 
   elements.employeeSearchInput.addEventListener("input", () => {
@@ -923,13 +1208,16 @@ function wireEvents() {
     renderEmployeeTable();
   });
 
+  elements.attendanceEmployeeFilter.addEventListener("change", () => { state.attendanceEmployeeUid = elements.attendanceEmployeeFilter.value; renderAttendanceTable(); });
   elements.attendanceFromInput.addEventListener("change", () => { state.attendanceFrom = elements.attendanceFromInput.value; renderAttendanceTable(); });
   elements.attendanceToInput.addEventListener("change", () => { state.attendanceTo = elements.attendanceToInput.value; renderAttendanceTable(); });
   elements.attendanceSearchInput.addEventListener("input", () => { state.attendanceSearch = elements.attendanceSearchInput.value; renderAttendanceTable(); });
   elements.clearAttendanceFiltersBtn.addEventListener("click", () => {
+    elements.attendanceEmployeeFilter.value = "";
     elements.attendanceFromInput.value = "";
     elements.attendanceToInput.value = "";
     elements.attendanceSearchInput.value = "";
+    state.attendanceEmployeeUid = "";
     state.attendanceFrom = "";
     state.attendanceTo = "";
     state.attendanceSearch = "";
@@ -969,8 +1257,6 @@ function wireEvents() {
   elements.sampleDataBtn.addEventListener("click", loadSampleData);
   elements.connectSerialBtn.addEventListener("click", connectSerial);
   elements.disconnectSerialBtn.addEventListener("click", disconnectSerial);
-  elements.connectEmployeeSerialBtn.addEventListener("click", connectSerial);
-  elements.disconnectEmployeeSerialBtn.addEventListener("click", disconnectSerial);
 
   elements.demoScanBtn.addEventListener("click", async () => {
     if (!state.employees.length) loadSampleData();
@@ -979,12 +1265,34 @@ function wireEvents() {
   elements.scanFromInputBtn.addEventListener("click", async () => { await processScan(elements.manualUidInput.value, "manual"); });
   elements.manualUidInput.addEventListener("keydown", async (e) => { if (e.key === "Enter") { e.preventDefault(); await processScan(elements.manualUidInput.value, "manual"); } });
 
+  // Company calendar
+  elements.calPrevBtn.addEventListener("click", () => {
+    state.calendarPageMonth = shiftMonth(state.calendarPageMonth || todayKey().slice(0, 7), -1);
+    renderCompanyCalendar();
+  });
+  elements.calNextBtn.addEventListener("click", () => {
+    state.calendarPageMonth = shiftMonth(state.calendarPageMonth || todayKey().slice(0, 7), 1);
+    renderCompanyCalendar();
+  });
+
   // Drawer events
   elements.drawerBackdrop.addEventListener("click", closeEmployeeDrawer);
   elements.closeDrawerBtn.addEventListener("click", closeEmployeeDrawer);
   elements.drawerFromInput.addEventListener("change", () => { state.drawerFrom = elements.drawerFromInput.value; renderDrawer(); });
   elements.drawerToInput.addEventListener("change", () => { state.drawerTo = elements.drawerToInput.value; renderDrawer(); });
   elements.drawerMonthSelect.addEventListener("change", () => { state.drawerMonth = elements.drawerMonthSelect.value; renderDrawer(); });
+  elements.drawerCalPrevBtn.addEventListener("click", () => {
+    const employee = state.employees.find((e) => e.uid === state.selectedEmployeeUid);
+    if (!employee) return;
+    state.calendarMonth = shiftMonth(state.calendarMonth || todayKey().slice(0, 7), -1);
+    renderDrawerCalendar(employee);
+  });
+  elements.drawerCalNextBtn.addEventListener("click", () => {
+    const employee = state.employees.find((e) => e.uid === state.selectedEmployeeUid);
+    if (!employee) return;
+    state.calendarMonth = shiftMonth(state.calendarMonth || todayKey().slice(0, 7), 1);
+    renderDrawerCalendar(employee);
+  });
   elements.drawerClearFiltersBtn.addEventListener("click", () => {
     elements.drawerFromInput.value = "";
     elements.drawerToInput.value = "";
@@ -1030,9 +1338,7 @@ function initialize() {
     showLogin();
     renderLiveOutput();
   }
-  setView("dashboardView");
-  renderUidCaptureState();
-  renderEmployeeSerialStatus();
+  router();
 }
 
 document.addEventListener("DOMContentLoaded", initialize);

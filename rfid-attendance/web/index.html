@@ -56,19 +56,31 @@
         </button>
       </div>
       <nav class="sidebar-nav">
-        <button class="nav-link is-active" data-view="dashboardView" type="button">
+        <button class="nav-link is-active" data-view="dashboardView" data-route="dashboard" type="button">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
           Dashboard
         </button>
-        <button class="nav-link" data-view="employeesView" type="button">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-          Employees
+        <button class="nav-link" data-view="employeeAddView" data-route="employees/add" type="button">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="17" y1="11" x2="23" y2="11"/></svg>
+          Add Employee
         </button>
-        <button class="nav-link" data-view="attendanceView" type="button">
+        <button class="nav-link" data-view="managerView" data-route="employees/manager" type="button">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          Manager
+        </button>
+        <button class="nav-link" data-view="attendanceTodayView" data-route="attendance/today" type="button">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          Attendance Today
+        </button>
+        <button class="nav-link" data-view="attendanceView" data-route="attendance" type="button">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
           Attendance
         </button>
-        <button class="nav-link" data-view="settingsView" type="button">
+        <button class="nav-link" data-view="calendarView" data-route="calendar" type="button">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="7.5" y1="15" x2="7.5" y2="15"/><line x1="12" y1="15" x2="12" y2="15"/><line x1="16.5" y1="15" x2="16.5" y2="15"/></svg>
+          Calendar
+        </button>
+        <button class="nav-link" data-view="settingsView" data-route="settings" type="button">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           Settings
         </button>
@@ -123,52 +135,11 @@
             <strong id="metricLate">0</strong>
           </article>
         </div>
-
-        <!-- Today Attendance Panel -->
-        <article class="panel glass-card">
-          <div class="panel-head">
-            <div>
-              <p class="panel-tag">Today</p>
-              <h2>Today's Attendance</h2>
-            </div>
-          </div>
-          <div class="table-wrap tall-table">
-            <table>
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Name</th>
-                  <th>UID</th>
-                  <th>Check In</th>
-                  <th>Check Out</th>
-                  <th>Hours</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody id="todayAttendanceBody"></tbody>
-            </table>
-          </div>
-        </article>
-
-        <!-- Hidden elements needed by JS -->
-        <div class="hidden">
-          <span id="scannerDot"></span>
-          <span id="serialBadge"></span>
-          <span id="serialHint"></span>
-          <span id="syncBadge"></span>
-          <pre id="liveOutput"></pre>
-          <div id="scanFeed"></div>
-          <input id="manualUidInput" />
-          <button id="scanFromInputBtn" type="button"></button>
-          <button id="connectSerialBtn" type="button"></button>
-          <button id="disconnectSerialBtn" type="button"></button>
-          <button id="demoScanBtn" type="button"></button>
-        </div>
       </section>
 
-      <!-- EMPLOYEES VIEW -->
-      <section id="employeesView" class="view">
-        <div class="content-grid two-col-grid">
+      <!-- EMPLOYEE ADD VIEW -->
+      <section id="employeeAddView" class="view">
+        <div class="content-grid">
           <article class="panel glass-card">
             <div class="panel-head">
               <div>
@@ -201,22 +172,18 @@
                 <span>Phone</span>
                 <input id="employeePhone" placeholder="+91 9876543210" />
               </label>
-              <div class="scan-serial-row">
-                <button id="connectEmployeeSerialBtn" class="mini-btn" type="button">Connect Reader</button>
-                <button id="disconnectEmployeeSerialBtn" class="mini-btn" type="button">Disconnect</button>
-                <span id="employeeSerialStatus" class="scan-hint">Reader disconnected</span>
-              </div>
-              <div class="scan-assign-row">
-                <button id="scanEmployeeUidBtn" class="mini-btn" type="button">Scan Card to Assign UID</button>
-                <span id="scanEmployeeUidHint" class="scan-hint">Ready to capture</span>
-              </div>
               <div class="form-actions">
                 <button class="primary-btn" type="submit">Save Employee</button>
                 <button id="clearEmployeeFormBtn" class="secondary-btn" type="button">Clear</button>
               </div>
             </form>
           </article>
+        </div>
+      </section>
 
+      <!-- MANAGER VIEW -->
+      <section id="managerView" class="view">
+        <div class="content-grid">
           <article class="panel glass-card">
             <div class="panel-head">
               <div>
@@ -244,6 +211,51 @@
         </div>
       </section>
 
+      <!-- ATTENDANCE TODAY VIEW -->
+      <section id="attendanceTodayView" class="view">
+        <article class="panel glass-card">
+          <div class="panel-head">
+            <div>
+              <p class="panel-tag">Today</p>
+              <h2>Today's Attendance</h2>
+            </div>
+          </div>
+          <div class="table-wrap tall-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Day</th>
+                  <th>Name</th>
+                  <th>UID</th>
+                  <th>Check In</th>
+                  <th>Check Out</th>
+                  <th>Hours</th>
+                  <th>Status</th>
+                  <th>Location</th>
+                </tr>
+              </thead>
+              <tbody id="todayAttendanceBody"></tbody>
+            </table>
+          </div>
+        </article>
+
+        <!-- Hidden elements needed by JS -->
+        <div class="hidden">
+          <span id="scannerDot"></span>
+          <span id="serialBadge"></span>
+          <span id="serialHint"></span>
+          <span id="syncBadge"></span>
+          <pre id="liveOutput"></pre>
+          <div id="scanFeed"></div>
+          <input id="manualUidInput" />
+          <button id="scanFromInputBtn" type="button"></button>
+          <button id="connectSerialBtn" type="button"></button>
+          <button id="disconnectSerialBtn" type="button"></button>
+          <button id="demoScanBtn" type="button"></button>
+        </div>
+      </section>
+
       <!-- ATTENDANCE VIEW -->
       <section id="attendanceView" class="view">
         <article class="panel glass-card">
@@ -253,6 +265,9 @@
               <h2>All attendance records</h2>
             </div>
             <div class="inline-actions wrap-actions">
+              <select id="attendanceEmployeeFilter" class="filter-select">
+                <option value="">All Employees</option>
+              </select>
               <input id="attendanceFromInput" class="date-input" type="date" />
               <input id="attendanceToInput" class="date-input" type="date" />
               <input id="attendanceSearchInput" class="table-search" placeholder="Search name, UID or date" />
@@ -264,18 +279,50 @@
               <thead>
                 <tr>
                   <th>Date</th>
+                  <th>Day</th>
                   <th>Name</th>
                   <th>UID</th>
                   <th>Check In</th>
                   <th>Check Out</th>
                   <th>Hours</th>
                   <th>Status</th>
+                  <th>Location</th>
                 </tr>
               </thead>
               <tbody id="attendanceTableBody"></tbody>
             </table>
           </div>
         </article>
+      </section>
+
+      <!-- CALENDAR VIEW -->
+      <section id="calendarView" class="view">
+        <div class="content-grid calendar-page-grid">
+          <article class="panel glass-card">
+            <div class="panel-head">
+              <div>
+                <p class="panel-tag">Company Calendar</p>
+                <h2>All employees attendance</h2>
+              </div>
+              <div class="calendar-nav">
+                <button id="calPrevBtn" class="mini-btn" type="button">&lsaquo; Prev</button>
+                <strong id="calLabel">-</strong>
+                <button id="calNextBtn" class="mini-btn" type="button">Next &rsaquo;</button>
+              </div>
+            </div>
+            <div id="calGrid" class="calendar-grid company-calendar-grid"></div>
+          </article>
+
+          <aside class="panel glass-card calendar-side-panel">
+            <div class="panel-head">
+              <div>
+                <p class="panel-tag" id="calSideDateTag">Select a date</p>
+                <h2 id="calSideDateLabel">-</h2>
+              </div>
+            </div>
+            <div id="calSideList" class="calendar-side-list"></div>
+          </aside>
+        </div>
       </section>
 
       <!-- SETTINGS VIEW -->
@@ -350,6 +397,21 @@
 
     <div class="drawer-summary" id="drawerSummary"></div>
 
+    <!-- Calendar Section -->
+    <div class="drawer-section-title">Attendance Calendar</div>
+    <div class="calendar-nav">
+      <button id="drawerCalPrevBtn" class="mini-btn" type="button">&lsaquo; Prev</button>
+      <strong id="drawerCalendarLabel">-</strong>
+      <button id="drawerCalNextBtn" class="mini-btn" type="button">Next &rsaquo;</button>
+    </div>
+    <div class="calendar-legend">
+      <span><span class="cal-status-dot info"></span> Present</span>
+      <span><span class="cal-status-dot done"></span> Checked Out</span>
+      <span><span class="cal-status-dot error"></span> Absent</span>
+      <span><span class="cal-remark-dot"></span> Remark</span>
+    </div>
+    <div id="drawerCalendarGrid" class="calendar-grid"></div>
+
     <!-- Remark Section -->
     <div class="drawer-section-title">Remarks</div>
     <div class="drawer-remark-section">
@@ -383,6 +445,7 @@
             <th>Check Out</th>
             <th>Hours</th>
             <th>Status</th>
+            <th>Location</th>
           </tr>
         </thead>
         <tbody id="drawerAttendanceBody"></tbody>

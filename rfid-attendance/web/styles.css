@@ -197,6 +197,11 @@ h2 {
   font-size: 0.82rem;
 }
 
+a.mini-btn {
+  display: inline-block;
+  text-decoration: none;
+}
+
 .wide-btn {
   width: 100%;
 }
@@ -646,8 +651,12 @@ h2 {
   margin-top: 14px;
 }
 
-.table-search, .date-input {
+.table-search, .date-input, .filter-select {
   min-width: 180px;
+}
+
+.filter-select {
+  width: auto;
 }
 
 /* Forms */
@@ -668,29 +677,6 @@ h2 {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-}
-
-.scan-assign-row {
-  grid-column: span 2;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-  padding: 4px 0;
-}
-
-.scan-serial-row {
-  grid-column: span 2;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-  padding: 4px 0;
-}
-
-.scan-hint {
-  color: var(--muted);
-  font-size: 0.84rem;
 }
 
 /* Settings */
@@ -774,6 +760,243 @@ h2 {
 
 .drawer-remark-section {
   margin-top: 16px;
+}
+
+/* Calendar */
+.calendar-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.calendar-nav strong {
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 0.95rem;
+  color: var(--brand);
+}
+
+.calendar-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin: 10px 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.calendar-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.calendar-weekday {
+  text-align: center;
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  padding: 4px 0;
+}
+
+.calendar-cell {
+  min-height: 82px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--panel-border);
+  background: var(--bg);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color 150ms ease, background 150ms ease;
+}
+
+.cal-cell-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.calendar-cell:hover {
+  border-color: var(--brand-border);
+  background: var(--brand-soft);
+}
+
+.calendar-cell.is-empty {
+  background: transparent;
+  border-color: transparent;
+  cursor: default;
+}
+
+.calendar-cell.is-today {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 1px var(--brand);
+}
+
+.calendar-cell.has-remark {
+  border-color: var(--warning);
+}
+
+.cal-day-num {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.cal-time {
+  font-size: 0.64rem;
+  font-weight: 500;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cal-time-in {
+  color: var(--success);
+}
+
+.cal-time-out {
+  color: var(--danger);
+}
+
+.cal-status-dot, .cal-remark-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.cal-status-dot.info {
+  background: var(--info);
+}
+
+.cal-status-dot.done {
+  background: var(--success);
+}
+
+.cal-status-dot.error {
+  background: var(--danger);
+}
+
+.cal-remark-dot {
+  background: var(--warning);
+}
+
+.cal-remark-badge {
+  font-size: 0.66rem;
+  font-weight: 600;
+  color: var(--warning);
+  background: var(--warning-bg);
+  border-radius: 6px;
+  padding: 2px 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Company Calendar Page */
+.calendar-page-grid {
+  grid-template-columns: minmax(0, 1fr) 300px;
+  align-items: start;
+}
+
+.company-calendar-grid .calendar-cell {
+  min-height: 74px;
+}
+
+.calendar-cell.is-selected {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+  box-shadow: 0 0 0 2px var(--brand);
+}
+
+.calendar-cell.has-people {
+  border-color: var(--info);
+}
+
+.cal-name-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cal-name-chip {
+  font-size: 0.62rem;
+  font-weight: 500;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 5px;
+  padding: 1px 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cal-name-chip.cal-name-more {
+  color: var(--muted);
+  border-style: dashed;
+}
+
+.calendar-side-panel {
+  position: sticky;
+  top: 16px;
+}
+
+.calendar-side-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.cal-side-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  border: 1px solid var(--panel-border);
+}
+
+.cal-side-item strong {
+  display: block;
+  font-size: 0.86rem;
+}
+
+.cal-side-sub {
+  display: block;
+  color: var(--muted);
+  font-size: 0.74rem;
+  margin-top: 2px;
+}
+
+.cal-side-times {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.cal-side-times .cal-time {
+  font-size: 0.76rem;
 }
 
 .remark-row {
@@ -915,8 +1138,12 @@ h2 {
   .metrics-grid,
   .dashboard-grid,
   .two-col-grid,
+  .calendar-page-grid,
   .settings-grid {
     grid-template-columns: 1fr;
+  }
+  .calendar-side-panel {
+    position: static;
   }
   .scan-tools,
   .form-grid {
@@ -1088,18 +1315,33 @@ h2 {
     width: 100%;
   }
 
+  /* Calendar */
+  .calendar-cell {
+    min-height: 64px;
+    padding: 4px;
+  }
+  .cal-day-num {
+    font-size: 0.68rem;
+  }
+  .cal-time {
+    font-size: 0.58rem;
+  }
+  .cal-remark-badge {
+    display: none;
+  }
+  .company-calendar-grid .calendar-cell {
+    min-height: 50px;
+  }
+  .cal-name-chip {
+    font-size: 0.56rem;
+  }
+  .cal-name-chip:nth-child(n+3) {
+    display: none;
+  }
+
   /* Form */
   .form-grid {
     gap: 10px;
-  }
-  .scan-serial-row,
-  .scan-assign-row {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .scan-serial-row button,
-  .scan-assign-row button {
-    width: 100%;
   }
   .form-actions {
     flex-direction: column;
@@ -1120,7 +1362,8 @@ h2 {
     min-width: 0;
   }
   .table-search,
-  .date-input {
+  .date-input,
+  .filter-select {
     min-width: 0;
   }
 

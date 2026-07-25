@@ -221,6 +221,21 @@ function todayKey() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function locationMapsUrl(location) {
+  if (!location) return "";
+  return `https://www.google.com/maps?q=${location.lat},${location.lng}`;
+}
+
+function locationCell(record) {
+  const inLink = record.checkInLocation
+    ? `<a href="${locationMapsUrl(record.checkInLocation)}" target="_blank" rel="noopener noreferrer" class="mini-btn" title="Check-in location">In</a>`
+    : "";
+  const outLink = record.checkOutLocation
+    ? `<a href="${locationMapsUrl(record.checkOutLocation)}" target="_blank" rel="noopener noreferrer" class="mini-btn" title="Check-out location">Out</a>`
+    : "";
+  return inLink || outLink ? `${inLink} ${outLink}`.trim() : "-";
+}
+
 async function clearCheckout(dateKey, uid) {
   if (!state.db) return;
   if (!confirm("Clear checkout time? You will need to scan your card again to check out.")) return;
@@ -270,11 +285,12 @@ function renderAttendance() {
       <td data-label="Check Out">${record.checkOut || "-"}</td>
       <td data-label="Hours">${hours}</td>
       <td data-label="Status"><span class="pill ${pillClass}">${status}</span></td>
+      <td data-label="Location">${locationCell(record)}</td>
       <td data-label="Action">${actionHtml}</td>
     </tr>`;
   }).join("");
 
-  el.empAttendanceBody.innerHTML = rows || '<tr><td colspan="6" class="empty-state">No attendance records found.</td></tr>';
+  el.empAttendanceBody.innerHTML = rows || '<tr><td colspan="7" class="empty-state">No attendance records found.</td></tr>';
 
   // Wire clear checkout buttons
   el.empAttendanceBody.querySelectorAll(".clear-checkout-btn").forEach((btn) => {
