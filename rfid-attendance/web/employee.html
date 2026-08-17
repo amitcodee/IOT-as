@@ -64,6 +64,25 @@
       <div class="emp-profile-grid" id="empProfileGrid"></div>
     </article>
 
+    <!-- Today's Card Scan & Location -->
+    <article class="panel glass-card">
+      <div class="panel-head">
+        <div>
+          <p class="panel-tag">Today</p>
+          <h2>Card Scan &amp; Location</h2>
+        </div>
+        <span class="status-pill" id="empTodayPill">-</span>
+      </div>
+      <p id="empTodayStatus" class="support-note">Loading...</p>
+      <div class="settings-actions hidden" id="empScanWrap" style="margin-top:10px;">
+        <button id="empScanBtn" class="primary-btn wide-btn" type="button">Verify My Location</button>
+      </div>
+      <div class="settings-actions hidden" id="empDeleteWrap" style="margin-top:8px;">
+        <button id="empDeleteBtn" class="secondary-btn wide-btn" type="button">Delete</button>
+      </div>
+      <p id="empScanHint" class="support-note" style="margin-top:8px;"></p>
+    </article>
+
     <!-- Summary Metrics -->
     <div class="metrics-grid emp-metrics">
       <article class="metric-card glass-card">
@@ -112,7 +131,7 @@
               <th>Hours</th>
               <th>Status</th>
               <th>Location</th>
-              <th>Action</th>
+              <th>Lock</th>
             </tr>
           </thead>
           <tbody id="empAttendanceBody"></tbody>

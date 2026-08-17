@@ -16,9 +16,13 @@ const state = {
   filterMonth: "",
   filterFrom: "",
   filterTo: "",
+  actionPending: false,
 };
 
 let attendanceUnsub = null;
+let todayTickHandle = null;
+
+const DELETE_WINDOW_MS = 5 * 60 * 1000;
 
 const el = {};
 
@@ -103,6 +107,8 @@ function cacheElements() {
     "empLoginView", "empLoginForm", "empLoginId", "empLoginHint",
     "empDashboard", "empWelcome", "empInfoPill", "empLogoutBtn",
     "empProfileName", "empProfileGrid",
+    "empTodayPill", "empTodayStatus", "empScanWrap", "empScanBtn", "empDeleteWrap", "empDeleteBtn",
+    "empScanHint",
     "empMetricTotal", "empMetricPresent", "empMetricCompleted", "empMetricHours",
     "empMonthSelect", "empFromDate", "empToDate", "empClearFilters",
     "empMonthSummary", "empAttendanceBody",
@@ -178,6 +184,7 @@ function renderProfile() {
   el.empProfileGrid.innerHTML = `
     <div class="setting-card"><span>UID</span><strong>${emp.uid}</strong></div>
     <div class="setting-card"><span>Employee ID</span><strong>${emp.employeeId}</strong></div>
+    <div class="setting-card"><span>Branch</span><strong>${emp.branch || "-"}</strong></div>
     <div class="setting-card"><span>Department</span><strong>${emp.department}</strong></div>
     <div class="setting-card"><span>Role</span><strong>${emp.role}</strong></div>
     <div class="setting-card"><span>Phone</span><strong>${emp.phone || "-"}</strong></div>
@@ -226,33 +233,215 @@ function locationMapsUrl(location) {
   return `https://www.google.com/maps?q=${location.lat},${location.lng}`;
 }
 
-function locationCell(record) {
-  const inLink = record.checkInLocation
-    ? `<a href="${locationMapsUrl(record.checkInLocation)}" target="_blank" rel="noopener noreferrer" class="mini-btn" title="Check-in location">In</a>`
-    : "";
-  const outLink = record.checkOutLocation
-    ? `<a href="${locationMapsUrl(record.checkOutLocation)}" target="_blank" rel="noopener noreferrer" class="mini-btn" title="Check-out location">Out</a>`
-    : "";
-  return inLink || outLink ? `${inLink} ${outLink}`.trim() : "-";
+function locationRow(label, location) {
+  const coords = `${location.lat.toFixed(5)}, ${location.lng.toFixed(5)}`;
+  return `<div class="location-row">
+    <span class="location-label">${label}</span>
+    <span class="location-coords">${coords}</span>
+    <a href="${locationMapsUrl(location)}" target="_blank" rel="noopener noreferrer" class="mini-btn" title="${label} location">View</a>
+  </div>`;
 }
 
-async function clearCheckout(dateKey, uid) {
-  if (!state.db) return;
-  if (!confirm("Clear checkout time? You will need to scan your card again to check out.")) return;
-  try {
-    await state.db.collection("attendance").doc(`${dateKey}_${uid}`).update({
-      checkOut: window.firebase.firestore.FieldValue.delete(),
-    });
-  } catch (err) {
-    console.error("Failed to clear checkout:", err);
-    alert("Failed to clear checkout. Please try again.");
+function locationCell(record) {
+  const rows = [];
+  if (record.checkInLocation) rows.push(locationRow("In", record.checkInLocation));
+  if (record.checkOutLocation) rows.push(locationRow("Out", record.checkOutLocation));
+  return rows.length ? rows.join("") : "-";
+}
+
+function getCurrentLocation(timeoutMs = 8000) {
+  return new Promise((resolve, reject) => {
+    if (!("geolocation" in navigator)) {
+      reject(new Error("Geolocation is not supported by this browser."));
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => resolve({
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+        accuracy: position.coords.accuracy,
+      }),
+      (err) => reject(new Error(err && err.code === 1
+        ? "Location access denied. Please enable location permission and try again."
+        : "Unable to get your live location. Please try again.")),
+      { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 0 },
+    );
+  });
+}
+
+function formatTimeNow(date = new Date()) {
+  return date.toTimeString().slice(0, 8);
+}
+
+function todayRecordForEmployee() {
+  const uid = state.employee?.uid;
+  if (!uid) return null;
+  const today = todayKey();
+  return state.attendance.find((r) => r.uid === uid && r.dateKey === today) || null;
+}
+
+function deleteMsLeft(dateKey, timeStr) {
+  if (!dateKey || !timeStr) return 0;
+  const scannedAt = new Date(`${dateKey}T${timeStr}`).getTime();
+  if (Number.isNaN(scannedAt)) return 0;
+  return DELETE_WINDOW_MS - (Date.now() - scannedAt);
+}
+
+function formatCountdown(ms) {
+  const totalSec = Math.max(0, Math.ceil(ms / 1000));
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${m}m ${String(s).padStart(2, "0")}s`;
+}
+
+function startTodayTicker() {
+  stopTodayTicker();
+  todayTickHandle = setInterval(renderTodayAction, 1000);
+}
+
+function stopTodayTicker() {
+  if (todayTickHandle) {
+    clearInterval(todayTickHandle);
+    todayTickHandle = null;
   }
+}
+
+function showDeleteButton(action, label, remaining) {
+  el.empDeleteWrap.classList.remove("hidden");
+  el.empDeleteBtn.disabled = state.actionPending;
+  el.empDeleteBtn.textContent = state.actionPending ? "Deleting..." : `${label} (${formatCountdown(remaining)} left)`;
+  el.empDeleteBtn.dataset.action = action;
+}
+
+function renderTodayAction() {
+  if (!el.empScanBtn) return;
+  const record = todayRecordForEmployee();
+  el.empScanWrap.classList.add("hidden");
+  el.empDeleteWrap.classList.add("hidden");
+
+  if (!state.db) {
+    el.empTodayPill.textContent = "Demo Mode";
+    el.empTodayPill.className = "status-pill";
+    el.empTodayStatus.textContent = "Location capture needs a live database connection.";
+    return;
+  }
+
+  if (!record || !record.checkIn) {
+    el.empTodayPill.textContent = "Waiting for Card Scan";
+    el.empTodayPill.className = "status-pill";
+    el.empTodayStatus.textContent = "You haven't tapped your card today. Tap your RFID card at the reader to check in.";
+    return;
+  }
+
+  if (!record.checkOut) {
+    if (!record.checkInLocation) {
+      el.empTodayPill.textContent = "Location Needed";
+      el.empTodayPill.className = "status-pill accent";
+      el.empTodayStatus.textContent = `Checked in via card at ${record.checkIn}. Verify your location to confirm.`;
+      el.empScanWrap.classList.remove("hidden");
+      el.empScanBtn.disabled = state.actionPending;
+      el.empScanBtn.textContent = state.actionPending ? "Getting your location..." : "Verify My Location";
+      el.empScanBtn.dataset.action = "checkin-location";
+    } else {
+      el.empTodayPill.textContent = "Checked In";
+      el.empTodayPill.className = "status-pill accent";
+      el.empTodayStatus.textContent = `Checked in at ${record.checkIn} (location confirmed). Tap your card again when you leave.`;
+    }
+
+    const remaining = deleteMsLeft(record.dateKey, record.checkIn);
+    if (remaining > 0) showDeleteButton("checkin", "Delete Check-In", remaining);
+    return;
+  }
+
+  if (!record.checkOutLocation) {
+    el.empTodayPill.textContent = "Location Needed";
+    el.empTodayPill.className = "status-pill accent";
+    el.empTodayStatus.textContent = `Checked out via card at ${record.checkOut}. Verify your location to confirm.`;
+    el.empScanWrap.classList.remove("hidden");
+    el.empScanBtn.disabled = state.actionPending;
+    el.empScanBtn.textContent = state.actionPending ? "Getting your location..." : "Verify My Location";
+    el.empScanBtn.dataset.action = "checkout-location";
+  } else {
+    el.empTodayPill.textContent = "Complete";
+    el.empTodayPill.className = "status-pill";
+    el.empTodayStatus.textContent = `Checked in ${record.checkIn} · Checked out ${record.checkOut}. Today is complete.`;
+  }
+
+  const remaining = deleteMsLeft(record.dateKey, record.checkOut);
+  if (remaining > 0) showDeleteButton("checkout", "Delete Check-Out", remaining);
+}
+
+async function captureLocation(action) {
+  if (!state.db || !state.employee || state.actionPending || !action) return;
+
+  state.actionPending = true;
+  el.empScanHint.textContent = "";
+  renderTodayAction();
+
+  try {
+    const location = await getCurrentLocation();
+    const uid = state.employee.uid;
+    const dateKey = todayKey();
+    const capturedAt = new Date().toISOString();
+    const docRef = state.db.collection("attendance").doc(`${dateKey}_${uid}`);
+
+    if (action === "checkin-location") {
+      await docRef.set({ checkInLocation: location, checkInLocationAt: capturedAt }, { merge: true });
+    } else {
+      await docRef.set({ checkOutLocation: location, checkOutLocationAt: capturedAt }, { merge: true });
+    }
+  } catch (err) {
+    console.error("Location capture failed:", err);
+    el.empScanHint.textContent = err.message || "Something went wrong. Please try again.";
+  } finally {
+    state.actionPending = false;
+    renderTodayAction();
+  }
+}
+
+async function deleteScan(action) {
+  if (!state.db || !state.employee || state.actionPending || !action) return;
+
+  state.actionPending = true;
+  el.empScanHint.textContent = "";
+  renderTodayAction();
+
+  try {
+    const uid = state.employee.uid;
+    const dateKey = todayKey();
+    const docRef = state.db.collection("attendance").doc(`${dateKey}_${uid}`);
+
+    if (action === "checkin") {
+      // Delete the whole document, not just fields: the hardware and admin scan
+      // logic both treat "document exists" as proof of an existing check-in, so a
+      // leftover empty doc would make the next card tap register as a check-out.
+      await docRef.delete();
+      el.empScanHint.textContent = "Check-in deleted. Tap your card again to check in.";
+    } else {
+      const del = window.firebase.firestore.FieldValue.delete();
+      await docRef.update({ checkOut: del, checkOutLocation: del, checkOutLocationAt: del });
+      el.empScanHint.textContent = "Check-out deleted. Tap your card again to check out.";
+    }
+  } catch (err) {
+    console.error("Delete failed:", err);
+    el.empScanHint.textContent = err.message || "Something went wrong. Please try again.";
+  } finally {
+    state.actionPending = false;
+    renderTodayAction();
+  }
+}
+
+function handleScanBtnClick() {
+  captureLocation(el.empScanBtn.dataset.action);
+}
+
+function handleDeleteBtnClick() {
+  deleteScan(el.empDeleteBtn.dataset.action);
 }
 
 function renderAttendance() {
   const months = getMonthOptions(state.attendance);
   const currentMonth = state.filterMonth || "";
-  const today = todayKey();
 
   el.empMonthSelect.innerHTML = '<option value="">All Months</option>' +
     months.map((m) => `<option value="${m}" ${m === currentMonth ? "selected" : ""}>${getMonthLabel(m)}</option>`).join("");
@@ -275,10 +464,11 @@ function renderAttendance() {
     const hours = record.checkIn && record.checkOut ? calcHours(record.checkIn, record.checkOut) : "-";
     const status = calcStatus(record);
     const pillClass = statusPillClass(status);
-    const canClear = record.dateKey === today && record.checkOut && state.db;
-    const actionHtml = canClear
-      ? `<button class="mini-btn clear-checkout-btn" data-datekey="${record.dateKey}" data-uid="${record.uid}" type="button">Clear Checkout</button>`
-      : "-";
+    const lockHtml = !record.checkIn || !record.checkOut
+      ? "-"
+      : deleteMsLeft(record.dateKey, record.checkOut) > 0
+        ? '<span class="pill info">Editable</span>'
+        : '<span class="pill done">Locked</span>';
     return `<tr>
       <td data-label="Date">${record.dateKey || "-"}</td>
       <td data-label="Check In">${record.checkIn || "-"}</td>
@@ -286,18 +476,13 @@ function renderAttendance() {
       <td data-label="Hours">${hours}</td>
       <td data-label="Status"><span class="pill ${pillClass}">${status}</span></td>
       <td data-label="Location">${locationCell(record)}</td>
-      <td data-label="Action">${actionHtml}</td>
+      <td data-label="Lock">${lockHtml}</td>
     </tr>`;
   }).join("");
 
   el.empAttendanceBody.innerHTML = rows || '<tr><td colspan="7" class="empty-state">No attendance records found.</td></tr>';
 
-  // Wire clear checkout buttons
-  el.empAttendanceBody.querySelectorAll(".clear-checkout-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      clearCheckout(btn.getAttribute("data-datekey"), btn.getAttribute("data-uid"));
-    });
-  });
+  renderTodayAction();
 }
 
 async function handleEmpLogin(event) {
@@ -337,6 +522,7 @@ async function handleEmpLogin(event) {
     showDashboard();
     renderProfile();
     renderAttendance();
+    startTodayTicker();
   } catch (error) {
     console.error("Login error:", error);
     el.empLoginHint.textContent = "Something went wrong: " + (error.message || "Please try again.");
@@ -345,20 +531,25 @@ async function handleEmpLogin(event) {
 
 function handleLogout() {
   stopAttendanceListener();
+  stopTodayTicker();
   state.employee = null;
   state.attendance = [];
   state.filterMonth = "";
   state.filterFrom = "";
   state.filterTo = "";
+  state.actionPending = false;
   sessionStorage.removeItem("empLoggedIn");
   el.empLoginId.value = "";
   el.empLoginHint.textContent = "";
+  el.empScanHint.textContent = "";
   showLogin();
 }
 
 function wireEvents() {
   el.empLoginForm.addEventListener("submit", handleEmpLogin);
   el.empLogoutBtn.addEventListener("click", handleLogout);
+  el.empScanBtn.addEventListener("click", handleScanBtnClick);
+  el.empDeleteBtn.addEventListener("click", handleDeleteBtnClick);
 
   el.empMonthSelect.addEventListener("change", () => {
     state.filterMonth = el.empMonthSelect.value;
@@ -403,6 +594,7 @@ async function tryRestoreSession() {
     showDashboard();
     renderProfile();
     renderAttendance();
+    startTodayTicker();
     return true;
   } catch {
     sessionStorage.removeItem("empLoggedIn");

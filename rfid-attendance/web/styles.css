@@ -642,6 +642,33 @@ a.mini-btn {
   color: var(--success);
 }
 
+/* Location cell */
+.location-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.location-row + .location-row {
+  margin-top: 4px;
+}
+
+.location-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  min-width: 22px;
+}
+
+.location-coords {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.78rem;
+  color: var(--text);
+}
+
 /* Tables */
 .table-wrap {
   overflow-x: auto;

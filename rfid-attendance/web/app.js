@@ -140,14 +140,20 @@ function locationMapsUrl(location) {
   return `https://www.google.com/maps?q=${location.lat},${location.lng}`;
 }
 
+function locationRow(label, location) {
+  const coords = `${location.lat.toFixed(5)}, ${location.lng.toFixed(5)}`;
+  return `<div class="location-row">
+    <span class="location-label">${label}</span>
+    <span class="location-coords">${coords}</span>
+    <a href="${locationMapsUrl(location)}" target="_blank" rel="noopener noreferrer" class="mini-btn" title="${label} location">View</a>
+  </div>`;
+}
+
 function locationCell(record) {
-  const inLink = record.checkInLocation
-    ? `<a href="${locationMapsUrl(record.checkInLocation)}" target="_blank" rel="noopener noreferrer" class="mini-btn" title="Check-in location">In</a>`
-    : "";
-  const outLink = record.checkOutLocation
-    ? `<a href="${locationMapsUrl(record.checkOutLocation)}" target="_blank" rel="noopener noreferrer" class="mini-btn" title="Check-out location">Out</a>`
-    : "";
-  return inLink || outLink ? `${inLink} ${outLink}`.trim() : "-";
+  const rows = [];
+  if (record.checkInLocation) rows.push(locationRow("In", record.checkInLocation));
+  if (record.checkOutLocation) rows.push(locationRow("Out", record.checkOutLocation));
+  return rows.length ? rows.join("") : "-";
 }
 
 function getEmployeeName(uid) {
@@ -219,7 +225,7 @@ function cacheElements() {
     "manualUidInput", "scanFromInputBtn",
     "serialBadge", "syncBadge", "serialHint", "scannerDot", "liveOutput", "scanFeed",
     "todayAttendanceBody",
-    "employeeForm", "employeeUid", "employeeId", "employeeName",
+    "employeeForm", "employeeUid", "employeeId", "employeeName", "employeeBranch",
     "employeeDepartment", "employeeRole", "employeePhone", "clearEmployeeFormBtn",
     "employeeSearchInput", "employeeTableBody",
     "attendanceEmployeeFilter", "attendanceFromInput", "attendanceToInput", "attendanceSearchInput",
@@ -472,6 +478,7 @@ function employeeRow(employee) {
     <td>${employee.uid}</td>
     <td>${employee.employeeId}</td>
     <td><strong>${employee.name}</strong></td>
+    <td>${employee.branch || "-"}</td>
     <td>${employee.department}</td>
     <td>${employee.role}</td>
     <td>
@@ -483,7 +490,7 @@ function employeeRow(employee) {
 }
 
 function renderEmployeeTable() {
-  const filtered = filterBySearch(state.employees, state.employeeSearch, ["uid", "employeeId", "name", "department", "role"]);
+  const filtered = filterBySearch(state.employees, state.employeeSearch, ["uid", "employeeId", "name", "branch", "department", "role"]);
   elements.employeeTableBody.innerHTML = filtered.map(employeeRow).join("") || '<tr><td colspan="6" class="empty-state">No employees found.</td></tr>';
 
   elements.employeeTableBody.querySelectorAll("[data-view-employee]").forEach((btn) => {
@@ -538,6 +545,7 @@ function renderDrawer() {
   elements.drawerSummary.innerHTML = `
     <div class="setting-card"><span>UID</span><strong>${employee.uid}</strong></div>
     <div class="setting-card"><span>Employee ID</span><strong>${employee.employeeId}</strong></div>
+    <div class="setting-card"><span>Branch</span><strong>${employee.branch || "-"}</strong></div>
     <div class="setting-card"><span>Department</span><strong>${employee.department}</strong></div>
     <div class="setting-card"><span>Role</span><strong>${employee.role}</strong></div>
     <div class="setting-card"><span>Phone</span><strong>${employee.phone || "-"}</strong></div>
@@ -846,6 +854,7 @@ function fillEmployeeForm(uid) {
   elements.employeeUid.value = emp.uid;
   elements.employeeId.value = emp.employeeId || "";
   elements.employeeName.value = emp.name || "";
+  elements.employeeBranch.value = emp.branch || "";
   elements.employeeDepartment.value = emp.department || "";
   elements.employeeRole.value = emp.role || "";
   elements.employeePhone.value = emp.phone || "";
@@ -1016,7 +1025,14 @@ async function processScan(rawUid, source = "manual") {
     return;
   }
 
+  // Auto-open this employee's panel so the admin can watch the scan live
+  openEmployeeDrawer(employee.uid);
+
   let daily = await getAttendanceRecord(uid, dateKey);
+  if (daily) {
+    daily.employeeId = daily.employeeId || employee.employeeId;
+    daily.employeeName = daily.employeeName || employee.name;
+  }
 
   if (!daily) {
     const checkInLocation = await getCurrentLocation();
@@ -1093,11 +1109,12 @@ async function handleEmployeeSubmit(event) {
     uid: normalizeUid(elements.employeeUid.value),
     employeeId: elements.employeeId.value.trim(),
     name: elements.employeeName.value.trim(),
+    branch: elements.employeeBranch.value.trim(),
     department: elements.employeeDepartment.value.trim(),
     role: elements.employeeRole.value.trim(),
     phone: elements.employeePhone.value.trim(),
   };
-  if (!employee.uid || !employee.employeeId || !employee.name || !employee.department || !employee.role) {
+  if (!employee.uid || !employee.employeeId || !employee.name || !employee.branch || !employee.department || !employee.role) {
     alert("Please complete all required fields.");
     return;
   }
