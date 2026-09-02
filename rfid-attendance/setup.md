@@ -59,33 +59,45 @@ OFFICE                                    CLOUD                         YOU (ANY
 1. In Firebase Console → **Authentication** → **Get Started**
 2. Click **Email/Password** → Enable → Save
 3. Go to **Users** tab → **Add User**
-4. Enter your email and password (this is your dashboard login)
+4. Enter your email and password — this is your **first Super Admin login**
    ```
    Email:    admin@techcadd.com
    Password: your-secure-password
    ```
+5. Copy this user's **User UID** (shown in the Users table after creation) — you'll need it in Step 3.
 
 ---
 
-## STEP 3: SET UP FIRESTORE DATABASE
+## STEP 3: SET UP FIRESTORE DATABASE + ROLES
+
+The dashboard uses three roles, each stored as a `users/{uid}` document in Firestore:
+
+| Role | Can do |
+|------|--------|
+| `super_admin` | Everything: manage employees/attendance, create/revoke logins, and **edit any employee's check-in/check-out time directly** |
+| `hr` | Manage employees, attendance and remarks (no login/user management) |
+| `employee` | Sign in to the **Employee Portal** and see only their own attendance |
+| `device` | Read-only on employees + write attendance — used by the ESP32 firmware login |
 
 1. In Firebase Console → **Firestore Database** → **Create Database**
-2. Choose **Start in test mode** (you'll secure it later)
+2. Choose **Start in test mode** for now (the real rules are applied next)
 3. Select a region closest to your office (e.g., `asia-south1` for India)
-4. After creation, go to **Rules** tab and paste:
-
-```
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /{document=**} {
-      allow read, write: if request.auth != null;
-    }
-  }
-}
-```
-
-5. Click **Publish**
+4. Install the Firebase CLI once: `npm install -g firebase-tools`, then `firebase login`
+5. From the `rfid-attendance` folder, deploy the real rules that ship in this repo:
+   ```bash
+   firebase deploy --only firestore:rules
+   ```
+   The rules live in `firestore.rules` — edit that file and re-run the command any time you want to change access.
+6. **Bootstrap your first Super Admin** (one-time, manual — every account after this is created from the in-app Users panel):
+   - Firebase Console → **Firestore Database** → **Start collection** → collection ID `users`
+   - Document ID: paste the **User UID** you copied in Step 2
+   - Add fields:
+     ```
+     email: "admin@techcadd.com"   (string, must match the Auth user's email)
+     name: "Admin"                 (string)
+     role: "super_admin"           (string)
+     ```
+   - Save. You can now sign in to the dashboard as Super Admin.
 
 ---
 
@@ -289,6 +301,18 @@ Connect ESP32 via USB, select the COM port, tap cards — UIDs will be printed.
 
 ---
 
+## STEP 8: CREATE LOGINS (Super Admin → Users)
+
+Adding an employee record (Step 7) does **not** create a login — it just registers the card. To create sign-ins, go to **Users** in the sidebar (visible to Super Admin only):
+
+1. **HR / another Super Admin**: fill in Name, Email, Temporary Password, pick the Role. They can now sign in at `index.html`.
+2. **Employee Portal access**: pick Role = `employee`, then select the matching employee from **Linked Employee**. Share the email/password with that employee — they sign in at `employee.html` and see only their own attendance.
+3. **The ESP32 firmware account** (the `MY_AUTH_EMAIL` / `MY_AUTH_PASS` values in `rfid_wifi.ino`): create it here too with Role = `device`. This gives the scanner just enough access to read employees and write attendance — nothing else.
+
+Accounts are created entirely from the browser (no Cloud Functions needed) and take effect immediately because of the rules deployed in Step 3. Use **Revoke Access** in the Users table to cut off a login without deleting the underlying Firebase Auth account (do that in the Firebase Console if you need to remove it completely).
+
+---
+
 ## RUNNING DAILY
 
 ### Start the dashboard:
@@ -312,16 +336,21 @@ Just make sure it's plugged into power and WiFi is on. It works automatically.
 
 ```
 [  ] Firebase project created
-[  ] Auth enabled, admin user created
-[  ] Firestore database created with rules
+[  ] Auth enabled, first Super Admin user created
+[  ] Firestore database created
+[  ] firestore.rules deployed (firebase deploy --only firestore:rules)
+[  ] First Super Admin's users/{uid} doc created manually (Step 3.6)
 [  ] .env file configured with Firebase values
-[  ] npm start works, dashboard opens at localhost:3000
+[  ] npm start works, dashboard opens at localhost:3000, Super Admin can sign in
 [  ] Arduino libraries installed (MFRC522 + ArduinoJson)
 [  ] WiFi + Firebase config edited in rfid_wifi.ino
 [  ] Firmware uploaded to ESP32 and tested
 [  ] ESP32 plugged into power adapter (standalone)
+[  ] Device login created in Users panel (role: device) matching MY_AUTH_EMAIL
 [  ] Employees added and RFID cards assigned
+[  ] HR / employee logins created in Users panel as needed
 [  ] Test: tap card → check dashboard → attendance appears
+[  ] Test: employee can sign in at employee.html and sees only their own data
 ```
 
 ---
@@ -425,6 +454,9 @@ For a small office (under 50 employees), everything stays within the free tier.
 | `npm start` fails | Make sure Node.js is installed. Run `node -v` to check. |
 | Dashboard won't load | Check `.env` file has correct Firebase values. |
 | Login fails | Make sure you created a user in Firebase Auth (Step 2). |
+| "Your account is not set up yet" | The Auth user exists but has no `users/{uid}` doc — bootstrap it (Step 3.6) or create it via the Users panel. |
+| "This login is for staff only" | An `employee` or `device` role account tried to sign in at `index.html`. Employees use `employee.html`; device accounts don't sign into either UI. |
+| Employee sees "Your employee profile was not found" | The linked `employeeUid` on their `users/{uid}` doc doesn't match any `employees/{uid}` document. Re-link them in the Users panel. |
 | ESP32 won't connect to WiFi | Check SSID and password. WiFi must be **2.4 GHz** (ESP32 doesn't support 5 GHz). |
 | "Firebase login failed" in Serial Monitor | Verify API key and email/password in the firmware code. |
 | Card taps but nothing in dashboard | Check Serial Monitor for errors. Verify Firestore rules allow writes. |
@@ -446,12 +478,24 @@ rfid-attendance/
          rfid_scanner.ino    ← USB-serial mode (needs laptop connected)
       rfid_wifi/
          rfid_wifi.ino       ← WiFi mode (standalone, no laptop at scanner)
-   web/
-      index.html             ← Dashboard UI
-      app.js                 ← Dashboard logic
-      styles.css             ← Styling
-      logo.png               ← TechCADD logo
-   server.mjs               ← Local server (reads .env, serves dashboard)
+   web/                     ← Everything needed to deploy the site (Firebase Hosting public dir)
+      index.html             ← Admin/HR dashboard UI
+      app.js                 ← Dashboard logic (roles, Users panel, Edit Time)
+      employee.html           ← Employee Portal UI (own-attendance only)
+      employee-app.js         ← Employee Portal logic
+      styles.css              ← Shared styling
+      employee-styles.css     ← Employee Portal styling
+      logo.png                ← TechCADD logo
+      config.js               ← Generated by `npm run build:config` (gitignored)
+   lib/
+      config.mjs             ← Shared .env loader, used by server.mjs and scripts/build-config.mjs
+   scripts/
+      build-config.mjs       ← Writes web/config.js from .env for static hosting
+   server.mjs               ← Local dev server (reads .env, serves web/ + live /config.js)
+   firebase.json            ← Firebase Hosting + Firestore rules config
+   .firebaserc              ← Default Firebase project id
+   firestore.rules          ← Role-based security rules (edit + redeploy anytime)
+   firestore.indexes.json   ← Firestore index config
    .env                     ← Your Firebase config (create from .env.example)
    .env.example             ← Template
    test.py                  ← UID reader utility
@@ -461,12 +505,17 @@ rfid-attendance/
 
 ---
 
-## FUTURE: HOST ONLINE
+## DEPLOYING ONLINE (Firebase Hosting)
 
-When you're ready to access the dashboard from anywhere (not just localhost), see the hosting options:
+The `web/` folder is a self-contained static site, ready to deploy as-is:
 
-- **Firebase Hosting** (free) — `firebase deploy --only hosting`
-- **Vercel** (free) — push to GitHub, import on vercel.com
-- **Netlify** (free) — push to GitHub, import on netlify.com
+```bash
+cd rfid-attendance
+npm run deploy
+```
 
-For now, `localhost:3000` works perfectly for local use.
+This runs `scripts/build-config.mjs` (writes a static `web/config.js` from your `.env`) and then `firebase deploy`, which publishes `web/` to Firebase Hosting **and** re-applies `firestore.rules`. Your site goes live at `https://<project-id>.web.app`.
+
+To deploy only a rules change (no hosting update): `firebase deploy --only firestore:rules`.
+
+Alternative static hosts (Vercel, Netlify, GitHub Pages) also work — just run `npm run build:config` first so `web/config.js` exists, then point the host at the `web/` folder as the publish directory.

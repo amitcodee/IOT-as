@@ -11,7 +11,6 @@ const state = {
   auth: null,
   authReady: false,
   employee: null,
-  employees: [],
   attendance: [],
   filterMonth: "",
   filterFrom: "",
@@ -31,29 +30,28 @@ function hasFirebaseConfig() {
   return Boolean(c.apiKey && c.projectId && c.appId);
 }
 
-async function initFirebase() {
+function initFirebase() {
   if (!window.firebase || !hasFirebaseConfig()) return;
   if (!window.firebase.apps.length) {
     window.firebase.initializeApp(appConfig.firebase);
   }
   state.db = window.firebase.firestore();
   state.auth = window.firebase.auth();
-
-  // Sign in anonymously so Firestore reads are allowed
-  try {
-    await state.auth.signInAnonymously();
-  } catch {
-    // If anonymous auth is not enabled, try reading without auth
-  }
   state.authReady = true;
+  state.auth.setPersistence(window.firebase.auth.Auth.Persistence.LOCAL).catch(() => null);
+}
 
-  // Preload all employees for lookup
-  try {
-    const snap = await state.db.collection("employees").get();
-    state.employees = snap.docs.map((d) => ({ uid: d.id, ...d.data() }));
-  } catch {
-    state.employees = [];
+async function loadMyEmployee(user) {
+  const snap = await state.db.collection("users").doc(user.uid).get();
+  if (!snap.exists || snap.data().role !== "employee" || !snap.data().employeeUid) {
+    return { ok: false, message: "This login is not set up as an employee account. Use the Admin Login if you are staff." };
   }
+  const employeeUid = snap.data().employeeUid;
+  const empSnap = await state.db.collection("employees").doc(employeeUid).get();
+  if (!empSnap.exists) {
+    return { ok: false, message: "Your employee profile was not found. Contact your administrator." };
+  }
+  return { ok: true, employee: { uid: empSnap.id, ...empSnap.data() } };
 }
 
 function calcHours(checkIn, checkOut) {
@@ -104,7 +102,7 @@ function getMonthLabel(ym) {
 
 function cacheElements() {
   [
-    "empLoginView", "empLoginForm", "empLoginId", "empLoginHint",
+    "empLoginView", "empLoginForm", "empLoginEmail", "empLoginPassword", "empLoginHint",
     "empDashboard", "empWelcome", "empInfoPill", "empLogoutBtn",
     "empProfileName", "empProfileGrid",
     "empTodayPill", "empTodayStatus", "empScanWrap", "empScanBtn", "empDeleteWrap", "empDeleteBtn",
@@ -127,18 +125,14 @@ function showDashboard() {
   el.empDashboard.classList.remove("hidden");
 }
 
-function findEmployee(query) {
+function findDemoEmployee(query) {
   const q = query.trim().toUpperCase();
   if (!q) return null;
 
-  const list = state.db ? state.employees : sampleEmployees;
-
-  // Match by employeeId (exact, case-insensitive)
-  let found = list.find((e) => (e.employeeId || "").toUpperCase() === q);
+  let found = sampleEmployees.find((e) => (e.employeeId || "").toUpperCase() === q);
   if (found) return found;
 
-  // Match by UID (exact, case-insensitive)
-  found = list.find((e) => (e.uid || "").toUpperCase() === q);
+  found = sampleEmployees.find((e) => (e.uid || "").toUpperCase() === q);
   if (found) return found;
 
   return null;
@@ -487,49 +481,49 @@ function renderAttendance() {
 
 async function handleEmpLogin(event) {
   event.preventDefault();
-  const query = el.empLoginId.value.trim();
-  if (!query) {
-    el.empLoginHint.textContent = "Please enter your Employee ID or UID.";
-    return;
-  }
+  const email = el.empLoginEmail.value.trim();
+  const password = el.empLoginPassword.value;
 
-  el.empLoginHint.textContent = "Searching...";
-
-  try {
-    // If firebase employees haven't loaded yet, try loading now
-    if (state.db && state.employees.length === 0) {
-      try {
-        const snap = await state.db.collection("employees").get();
-        state.employees = snap.docs.map((d) => ({ uid: d.id, ...d.data() }));
-      } catch (err) {
-        el.empLoginHint.textContent = "Unable to connect to database. Please try again.";
-        console.error("Firestore read error:", err);
-        return;
-      }
-    }
-
-    const employee = findEmployee(query);
+  if (!state.db) {
+    // Local demo mode: no live Firebase configured, match against sample employees by ID.
+    const employee = findDemoEmployee(email);
     if (!employee) {
-      el.empLoginHint.textContent = "Employee not found. Please check your ID or UID.";
+      el.empLoginHint.textContent = "Employee not found. Demo mode: type EMP001, EMP002 or EMP003 in the Email field.";
       return;
     }
-
     state.employee = employee;
     listenAttendance(employee.uid);
-
-    sessionStorage.setItem("empLoggedIn", JSON.stringify({ uid: employee.uid, employeeId: employee.employeeId }));
-
     showDashboard();
     renderProfile();
     renderAttendance();
     startTodayTicker();
+    return;
+  }
+
+  if (!email || !password) {
+    el.empLoginHint.textContent = "Please enter your email and password.";
+    return;
+  }
+
+  el.empLoginHint.textContent = "Signing in...";
+  try {
+    await state.auth.signInWithEmailAndPassword(email, password);
+    // onAuthStateChanged takes over from here.
   } catch (error) {
-    console.error("Login error:", error);
-    el.empLoginHint.textContent = "Something went wrong: " + (error.message || "Please try again.");
+    const code = error?.code || "";
+    if (code.includes("user-not-found") || code.includes("invalid-credential") || code.includes("wrong-password")) {
+      el.empLoginHint.textContent = "Incorrect email or password.";
+    } else if (code.includes("too-many-requests")) {
+      el.empLoginHint.textContent = "Too many attempts. Please try again later.";
+    } else if (code.includes("invalid-email")) {
+      el.empLoginHint.textContent = "Invalid email format.";
+    } else {
+      el.empLoginHint.textContent = "Unable to sign in. Please try again.";
+    }
   }
 }
 
-function handleLogout() {
+async function handleLogout() {
   stopAttendanceListener();
   stopTodayTicker();
   state.employee = null;
@@ -538,11 +532,15 @@ function handleLogout() {
   state.filterFrom = "";
   state.filterTo = "";
   state.actionPending = false;
-  sessionStorage.removeItem("empLoggedIn");
-  el.empLoginId.value = "";
+  el.empLoginEmail.value = "";
+  el.empLoginPassword.value = "";
   el.empLoginHint.textContent = "";
   el.empScanHint.textContent = "";
-  showLogin();
+  if (state.auth) {
+    await state.auth.signOut();
+  } else {
+    showLogin();
+  }
 }
 
 function wireEvents() {
@@ -577,44 +575,43 @@ function wireEvents() {
   });
 }
 
-async function tryRestoreSession() {
-  const saved = sessionStorage.getItem("empLoggedIn");
-  if (!saved) return false;
-
-  try {
-    const { uid, employeeId } = JSON.parse(saved);
-    const employee = findEmployee(employeeId || uid);
-    if (!employee) {
-      sessionStorage.removeItem("empLoggedIn");
-      return false;
+function wireAuthState() {
+  state.auth.onAuthStateChanged(async (user) => {
+    if (!user) {
+      stopAttendanceListener();
+      stopTodayTicker();
+      state.employee = null;
+      showLogin();
+      return;
     }
 
-    state.employee = employee;
-    listenAttendance(employee.uid);
+    el.empLoginHint.textContent = "Loading your profile...";
+    const result = await loadMyEmployee(user);
+    if (!result.ok) {
+      el.empLoginHint.textContent = result.message;
+      await state.auth.signOut();
+      return;
+    }
+
+    state.employee = result.employee;
+    listenAttendance(state.employee.uid);
     showDashboard();
     renderProfile();
     renderAttendance();
     startTodayTicker();
-    return true;
-  } catch {
-    sessionStorage.removeItem("empLoggedIn");
-    return false;
-  }
+  });
 }
 
-async function initialize() {
+function initialize() {
   cacheElements();
   wireEvents();
+  initFirebase();
 
-  // Init firebase and wait for auth + employee data to load
-  await initFirebase();
-
-  const restored = await tryRestoreSession();
-  if (!restored) {
+  if (state.auth) {
+    wireAuthState();
+  } else {
     showLogin();
-    if (!hasFirebaseConfig()) {
-      el.empLoginHint.textContent = "System is in local demo mode. Try EMP001, EMP002, or EMP003.";
-    }
+    el.empLoginHint.textContent = "System is in local demo mode. Type EMP001, EMP002 or EMP003 in the Email field.";
   }
 }
 

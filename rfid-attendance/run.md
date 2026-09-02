@@ -75,23 +75,11 @@ WARNING: Use 3.3V NOT 5V. The RC522 runs on 3.3V.
 1. Copy `.env.example` to `.env`.
 2. Fill in your Firebase web config values in `.env`.
 3. Make sure Firebase Email/Password sign-in is enabled in the Firebase console.
-4. Create at least one Firebase Auth user for logging in.
-5. Update Firestore rules so signed-in users can read and write the attendance collections.
+4. Create at least one Firebase Auth user — this becomes your first Super Admin.
+5. Deploy the real rules that ship in this repo: `firebase deploy --only firestore:rules` (see `firestore.rules`).
+6. Bootstrap that first user's role by hand — full steps in `setup.md`, Step 3.6 — then create every other login (HR, employee, the ESP32 device account) from the dashboard's **Users** panel.
 
-Use this example in Firestore Rules if you want any authenticated user to manage the app:
-
-```rules
-rules_version = '2';
-service cloud.firestore {
-   match /databases/{database}/documents {
-      match /{document=**} {
-         allow read, write: if request.auth != null;
-      }
-   }
-}
-```
-
-If you want stricter access later, replace the `request.auth != null` check with your own user or email whitelist.
+The app now has 4 roles: `super_admin` (full access + can edit any employee's attendance time + manages logins), `hr` (manage employees/attendance), `employee` (own attendance only, via `employee.html`), and `device` (the ESP32 firmware account). See `setup.md` for the full breakdown.
 
 
 ---
@@ -182,12 +170,17 @@ Dashboard checks: is this UID registered?
 rfid-attendance/
    arduino/
       rfid_scanner.ino   <- Upload this to ESP32
-   web/                 <- Login, dashboard, employees, attendance
+   web/                 <- Deployable site: dashboard (index.html) + Employee Portal (employee.html)
+   lib/, scripts/       <- Shared config loader + static config.js builder for deployment
+   firebase.json, .firebaserc, firestore.rules  <- Firebase Hosting + role-based security rules
    server.mjs           <- Local server that reads .env and serves the app
    .env.example         <- Copy to .env and fill in Firebase credentials
    test.py              <- Temporary fallback bridge
+   setup.md             <- Full setup guide (roles, deployment, troubleshooting)
    run.md               <- You are reading this
 ```
+
+See `setup.md` for how to deploy this online (`npm run deploy`) and how the Super Admin / HR / Employee / Device roles work.
 
 ---
 

@@ -3,11 +3,11 @@
   LIBRARY NEEDED: MFRC522 (install from Arduino Library Manager)
 
   WIRING:
-    RC522 SDA  -> GPIO 5
-    RC522 SCK  -> GPIO 18
-    RC522 MOSI -> GPIO 23
-    RC522 MISO -> GPIO 19
-    RC522 RST  -> GPIO 22
+    RC522 SDA  -> GPIO 23
+    RC522 SCK  -> GPIO 22
+    RC522 MOSI -> GPIO 19
+    RC522 MISO -> GPIO 18
+    RC522 RST  -> GPIO 5
     RC522 3.3V -> 3.3V
     RC522 GND  -> GND
 */
@@ -33,9 +33,12 @@
 // India=19800 Dubai=14400 London=0 Singapore=28800
 // ============================================================
 
-#define SS_PIN  5
-#define RST_PIN 22
-#define LED_PIN 2
+#define SS_PIN   23
+#define SCK_PIN  22
+#define MOSI_PIN 19
+#define MISO_PIN 18
+#define RST_PIN  5
+#define LED_PIN  2
 
 MFRC522 rfid(SS_PIN, RST_PIN);
 
@@ -345,7 +348,7 @@ void setup() {
   if (firebaseLogin()) Serial.println("Login OK");
   else Serial.println("Login FAILED!");
 
-  SPI.begin();
+  SPI.begin(SCK_PIN, MISO_PIN, MOSI_PIN, SS_PIN);
   rfid.PCD_Init();
   delay(100);
 
@@ -388,6 +391,8 @@ void loop() {
 
   Serial.print("Card: ");
   Serial.println(uid);
+
+  blinkLed(1, 100);
 
   if (idToken == "" || (millis() - tokenTime) > 3000000) {
     firebaseLogin();

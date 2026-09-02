@@ -1,0 +1,76 @@
+rules_version = '2';
+
+// ============================================================
+//  ROLES
+//  Every signed-in account must have a matching users/{uid} doc,
+//  written by a super_admin from the dashboard's Users panel.
+//    super_admin - full access, manages users/roles, can edit any
+//                   employee's attendance time.
+//    hr          - manages employees, attendance and remarks.
+//    device      - the ESP32 firmware account (MY_AUTH_EMAIL in
+//                   rfid_wifi.ino). Reads employees, writes attendance.
+//    employee    - can only read/manage their own attendance record,
+//                   linked via users/{uid}.employeeUid.
+//  Accounts with no users/{uid} doc have no access at all.
+// ============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function myUserDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function hasRole() {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function myRole() {
+      return myUserDoc().data.role;
+    }
+
+    function myEmployeeUid() {
+      return myUserDoc().data.employeeUid;
+    }
+
+    function isSuperAdmin() { return hasRole() && myRole() == 'super_admin'; }
+    function isHR()         { return hasRole() && myRole() == 'hr'; }
+    function isStaff()      { return isSuperAdmin() || isHR(); }
+    function isDevice()     { return hasRole() && myRole() == 'device'; }
+    function isEmployee()   { return hasRole() && myRole() == 'employee'; }
+
+    // Login/role directory. Only a super_admin may create accounts or
+    // change roles; anyone may read their own record to discover their role.
+    match /users/{userId} {
+      allow get: if isSignedIn() && (isSuperAdmin() || request.auth.uid == userId);
+      allow list: if isSuperAdmin();
+      allow create, update: if isSuperAdmin();
+      allow delete: if isSuperAdmin() && request.auth.uid != userId;
+    }
+
+    match /employees/{uid} {
+      allow get: if isStaff() || isDevice() || (isEmployee() && myEmployeeUid() == uid);
+      allow list: if isStaff();
+      allow write: if isStaff();
+    }
+
+    match /attendance/{docId} {
+      allow get, list: if isStaff() || (isEmployee() && resource.data.uid == myEmployeeUid());
+      allow create: if isStaff() || isDevice();
+      allow update: if isStaff() || isDevice()
+        || (isEmployee()
+            && resource.data.uid == myEmployeeUid()
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['checkInLocation', 'checkInLocationAt', 'checkOutLocation', 'checkOutLocationAt', 'checkOut']));
+      allow delete: if isStaff() || (isEmployee() && resource.data.uid == myEmployeeUid());
+    }
+
+    match /remarks/{id} {
+      allow read, write: if isStaff();
+    }
+  }
+}

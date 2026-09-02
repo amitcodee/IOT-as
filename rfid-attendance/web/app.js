@@ -6,6 +6,9 @@ const state = {
   user: null,
   auth: null,
   db: null,
+  role: null,
+  users: [],
+  editTimeRecord: null,
   employees: [],
   attendance: [],
   remarks: [],
@@ -42,6 +45,14 @@ const SCAN_COOLDOWN_MS = 90000; // 90 seconds cooldown per UID
 let employeesUnsub = null;
 let attendanceUnsub = null;
 let remarksUnsub = null;
+let usersUnsub = null;
+
+const ROLE_LABELS = {
+  super_admin: "Super Admin",
+  hr: "HR",
+  employee: "Employee",
+  device: "Device",
+};
 
 function todayKey(date = new Date()) {
   return date.toISOString().slice(0, 10);
@@ -216,10 +227,14 @@ function truncateText(text, max) {
 function cacheElements() {
   [
     "loginView", "appShell", "loginForm", "loginEmail", "loginPassword", "loginHint",
-    "topbarTitle", "sidebarTitle", "currentUserLabel", "authStatusPill", "syncStatusPill",
+    "topbarTitle", "sidebarTitle", "currentUserLabel", "authStatusPill", "roleStatusPill",
     "signOutBtn", "signOutBtnSecondary",
     "dashboardView", "employeeAddView", "managerView", "attendanceTodayView",
-    "attendanceView", "calendarView", "settingsView",
+    "attendanceView", "calendarView", "settingsView", "usersView", "usersNavLink",
+    "userForm", "userName", "userEmail", "userPassword", "userRole",
+    "userEmployeeLinkWrap", "userEmployeeLink", "userFormHint", "usersTableBody", "createUserBtn",
+    "editTimeBackdrop", "editTimeModal", "editTimeTitle", "closeEditTimeBtn",
+    "editTimeCheckIn", "editTimeCheckOut", "editTimeHint", "clearEditTimeBtn", "saveEditTimeBtn",
     "metricEmployees", "metricPresent", "metricCheckedOut", "metricLate",
     "connectSerialBtn", "disconnectSerialBtn", "demoScanBtn",
     "manualUidInput", "scanFromInputBtn",
@@ -268,21 +283,62 @@ function initFirebase() {
   state.auth.onAuthStateChanged(async (user) => {
     state.user = user || null;
     if (user) {
+      const allowed = await loadMyRole();
+      if (!allowed) {
+        await state.auth.signOut();
+        return;
+      }
       await loadData();
       showApp();
+      applyRoleUI();
       renderAll();
     } else {
+      state.role = null;
       showLogin();
     }
   });
 }
 
+let pendingLoginMessage = "";
+
+async function loadMyRole() {
+  try {
+    const snap = await state.db.collection("users").doc(state.user.uid).get();
+    if (!snap.exists) {
+      pendingLoginMessage = "Your account is not set up yet. Ask your super admin to grant access.";
+      return false;
+    }
+    const data = snap.data();
+    if (data.role !== "super_admin" && data.role !== "hr") {
+      pendingLoginMessage = "This login is for staff only. Use the Employee Portal to view your own attendance.";
+      return false;
+    }
+    state.role = data.role;
+    return true;
+  } catch (error) {
+    pendingLoginMessage = "Unable to verify your account. Please try again.";
+    return false;
+  }
+}
+
+function applyRoleUI() {
+  const isSuperAdmin = state.role === "super_admin";
+  elements.usersNavLink.classList.toggle("hidden", !isSuperAdmin);
+  elements.roleStatusPill.textContent = ROLE_LABELS[state.role] || "";
+  elements.roleStatusPill.className = `status-pill role-${state.role}`;
+}
+
 function showLogin() {
   elements.loginView.classList.remove("hidden");
   elements.appShell.classList.add("hidden");
-  elements.loginHint.textContent = hasFirebaseConfig()
-    ? "Sign in with your account."
-    : "System is in local demo mode.";
+  if (pendingLoginMessage) {
+    elements.loginHint.textContent = pendingLoginMessage;
+    pendingLoginMessage = "";
+  } else {
+    elements.loginHint.textContent = hasFirebaseConfig()
+      ? "Sign in with your account."
+      : "System is in local demo mode.";
+  }
 }
 
 function showApp() {
@@ -317,6 +373,7 @@ const VIEW_LABELS = {
   attendanceView: "Attendance",
   calendarView: "Calendar",
   settingsView: "Settings",
+  usersView: "Users",
 };
 
 function setView(viewId) {
@@ -350,6 +407,11 @@ function router() {
   if (section === "attendance" && sub === "today") { setView("attendanceTodayView"); return; }
   if (section === "attendance") { setView("attendanceView"); return; }
   if (section === "settings") { setView("settingsView"); return; }
+  if (section === "users") {
+    if (state.role !== "super_admin") { location.hash = "#dashboard"; return; }
+    setView("usersView");
+    return;
+  }
   setView("dashboardView");
 }
 
@@ -411,6 +473,17 @@ function readRemarks() {
   }, handleFirestoreError);
 }
 
+function readUsers() {
+  if (!state.db || state.role !== "super_admin") {
+    state.users = [];
+    return null;
+  }
+  return state.db.collection("users").onSnapshot((snap) => {
+    state.users = snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (a.email || "").localeCompare(b.email || ""));
+    renderUsersTable();
+  }, handleFirestoreError);
+}
+
 async function loadData() {
   if (!state.db) {
     state.employees = sampleEmployees.map((e) => ({ ...e }));
@@ -421,9 +494,11 @@ async function loadData() {
   if (employeesUnsub) employeesUnsub();
   if (attendanceUnsub) attendanceUnsub();
   if (remarksUnsub) remarksUnsub();
+  if (usersUnsub) usersUnsub();
   employeesUnsub = readEmployees();
   attendanceUnsub = readAttendance();
   remarksUnsub = readRemarks();
+  usersUnsub = readUsers();
 }
 
 function filterBySearch(items, search, fields) {
@@ -449,39 +524,55 @@ function renderMetrics() {
   elements.metricLate.textContent = todayRecs.length;
 }
 
+function editTimeButton(record) {
+  if (state.role !== "super_admin") return "-";
+  return `<button class="mini-btn" data-edit-time="${record.dateKey}|${record.uid}" type="button">Edit Time</button>`;
+}
+
 function attendanceRow(record) {
   const hours = record.checkIn && record.checkOut ? calcHours(record.checkIn, record.checkOut) : "-";
   const status = calcStatus(record);
   const pillClass = statusPillClass(status);
   const day = record.dateKey ? getWeekdayShort(record.dateKey) : "-";
   return `<tr>
-    <td>${record.dateKey || "-"}</td>
-    <td>${day}</td>
-    <td>${getEmployeeName(record.uid)}</td>
-    <td>${record.uid}</td>
-    <td>${record.checkIn ? formatTimeAmPm(record.checkIn) : "-"}</td>
-    <td>${record.checkOut ? formatTimeAmPm(record.checkOut) : "-"}</td>
-    <td>${hours}</td>
-    <td><span class="pill ${pillClass}">${status}</span></td>
-    <td>${locationCell(record)}</td>
+    <td data-label="Date">${record.dateKey || "-"}</td>
+    <td data-label="Day">${day}</td>
+    <td data-label="Name">${getEmployeeName(record.uid)}</td>
+    <td data-label="UID">${record.uid}</td>
+    <td data-label="Check In">${record.checkIn ? formatTimeAmPm(record.checkIn) : "-"}</td>
+    <td data-label="Check Out">${record.checkOut ? formatTimeAmPm(record.checkOut) : "-"}</td>
+    <td data-label="Hours">${hours}</td>
+    <td data-label="Status"><span class="pill ${pillClass}">${status}</span></td>
+    <td data-label="Location">${locationCell(record)}</td>
+    <td data-label="Actions">${editTimeButton(record)}</td>
   </tr>`;
+}
+
+function wireEditTimeButtons(container) {
+  container.querySelectorAll("[data-edit-time]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const [dateKey, uid] = btn.getAttribute("data-edit-time").split("|");
+      openEditTimeModal(dateKey, uid);
+    });
+  });
 }
 
 function renderTodayAttendance() {
   const today = todayKey();
   const rows = state.attendance.filter((r) => r.dateKey === today).map(attendanceRow).join("");
-  elements.todayAttendanceBody.innerHTML = rows || '<tr><td colspan="9" class="empty-state">No attendance records for today.</td></tr>';
+  elements.todayAttendanceBody.innerHTML = rows || '<tr><td colspan="10" class="empty-state">No attendance records for today.</td></tr>';
+  wireEditTimeButtons(elements.todayAttendanceBody);
 }
 
 function employeeRow(employee) {
   return `<tr>
-    <td>${employee.uid}</td>
-    <td>${employee.employeeId}</td>
-    <td><strong>${employee.name}</strong></td>
-    <td>${employee.branch || "-"}</td>
-    <td>${employee.department}</td>
-    <td>${employee.role}</td>
-    <td>
+    <td data-label="UID">${employee.uid}</td>
+    <td data-label="ID">${employee.employeeId}</td>
+    <td data-label="Name"><strong>${employee.name}</strong></td>
+    <td data-label="Branch">${employee.branch || "-"}</td>
+    <td data-label="Department">${employee.department}</td>
+    <td data-label="Role">${employee.role}</td>
+    <td data-label="Actions">
       <button class="mini-btn" data-view-employee="${employee.uid}" type="button">View</button>
       <button class="mini-btn" data-edit-employee="${employee.uid}" type="button">Edit</button>
       <button class="mini-btn" data-delete-employee="${employee.uid}" type="button">Delete</button>
@@ -491,7 +582,7 @@ function employeeRow(employee) {
 
 function renderEmployeeTable() {
   const filtered = filterBySearch(state.employees, state.employeeSearch, ["uid", "employeeId", "name", "branch", "department", "role"]);
-  elements.employeeTableBody.innerHTML = filtered.map(employeeRow).join("") || '<tr><td colspan="6" class="empty-state">No employees found.</td></tr>';
+  elements.employeeTableBody.innerHTML = filtered.map(employeeRow).join("") || '<tr><td colspan="7" class="empty-state">No employees found.</td></tr>';
 
   elements.employeeTableBody.querySelectorAll("[data-view-employee]").forEach((btn) => {
     btn.addEventListener("click", () => openEmployeeDrawer(btn.getAttribute("data-view-employee")));
@@ -525,7 +616,8 @@ function renderAttendanceTable() {
     state.attendanceSearch,
     ["dateKey", "employeeName", "uid"],
   );
-  elements.attendanceTableBody.innerHTML = filtered.map(attendanceRow).join("") || '<tr><td colspan="9" class="empty-state">No attendance records match the filters.</td></tr>';
+  elements.attendanceTableBody.innerHTML = filtered.map(attendanceRow).join("") || '<tr><td colspan="10" class="empty-state">No attendance records match the filters.</td></tr>';
+  wireEditTimeButtons(elements.attendanceTableBody);
 }
 
 function renderDrawer() {
@@ -533,7 +625,7 @@ function renderDrawer() {
   if (!employee) {
     elements.drawerEmployeeName.textContent = "Select an employee";
     elements.drawerSummary.innerHTML = '<div class="empty-state">Choose an employee to view details.</div>';
-    elements.drawerAttendanceBody.innerHTML = '<tr><td colspan="6" class="empty-state">No employee selected.</td></tr>';
+    elements.drawerAttendanceBody.innerHTML = '<tr><td colspan="7" class="empty-state">No employee selected.</td></tr>';
     elements.drawerMonthSummary.innerHTML = "";
     elements.drawerRemarkList.innerHTML = "";
     elements.drawerCalendarGrid.innerHTML = "";
@@ -617,16 +709,18 @@ function renderDrawer() {
     const status = calcStatus(record);
     const pillClass = statusPillClass(status);
     return `<tr>
-      <td>${record.dateKey}</td>
-      <td>${record.checkIn || "-"}</td>
-      <td>${record.checkOut || "-"}</td>
-      <td>${hours}</td>
-      <td><span class="pill ${pillClass}">${status}</span></td>
-      <td>${locationCell(record)}</td>
+      <td data-label="Date">${record.dateKey}</td>
+      <td data-label="Check In">${record.checkIn || "-"}</td>
+      <td data-label="Check Out">${record.checkOut || "-"}</td>
+      <td data-label="Hours">${hours}</td>
+      <td data-label="Status"><span class="pill ${pillClass}">${status}</span></td>
+      <td data-label="Location">${locationCell(record)}</td>
+      <td data-label="Actions">${editTimeButton(record)}</td>
     </tr>`;
   }).join("");
 
-  elements.drawerAttendanceBody.innerHTML = rows || '<tr><td colspan="6" class="empty-state">No attendance records found.</td></tr>';
+  elements.drawerAttendanceBody.innerHTML = rows || '<tr><td colspan="7" class="empty-state">No attendance records found.</td></tr>';
+  wireEditTimeButtons(elements.drawerAttendanceBody);
 }
 
 const CALENDAR_WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -839,6 +933,10 @@ function renderAll() {
   renderScanFeed();
   renderCompanyCalendar();
   renderCalendarSidePanel();
+  if (state.role === "super_admin") {
+    renderUserEmployeeOptions();
+    renderUsersTable();
+  }
 }
 
 // ---- ACTIONS ----
@@ -942,6 +1040,166 @@ async function saveAttendance(record) {
   } catch (error) {
     handleFirestoreError(error);
     throw error;
+  }
+}
+
+// ---- EDIT TIME (Super Admin) ----
+
+function openEditTimeModal(dateKey, uid) {
+  if (state.role !== "super_admin") return;
+  const record = state.attendance.find((r) => r.dateKey === dateKey && r.uid === uid);
+  if (!record) return;
+  state.editTimeRecord = { dateKey, uid };
+  elements.editTimeTitle.textContent = `${getEmployeeName(uid)} — ${dateKey}`;
+  elements.editTimeCheckIn.value = record.checkIn || "";
+  elements.editTimeCheckOut.value = record.checkOut || "";
+  elements.editTimeHint.textContent = "";
+  elements.editTimeModal.classList.remove("hidden");
+  elements.editTimeBackdrop.classList.remove("hidden");
+}
+
+function closeEditTimeModal() {
+  state.editTimeRecord = null;
+  elements.editTimeModal.classList.add("hidden");
+  elements.editTimeBackdrop.classList.add("hidden");
+}
+
+async function saveEditTime() {
+  if (!state.editTimeRecord || state.role !== "super_admin") return;
+  const { dateKey, uid } = state.editTimeRecord;
+  const checkIn = elements.editTimeCheckIn.value.trim();
+  const checkOut = elements.editTimeCheckOut.value.trim();
+
+  if (!checkIn && checkOut) {
+    elements.editTimeHint.textContent = "Set a check-in time before setting check-out.";
+    return;
+  }
+
+  const existing = state.attendance.find((r) => r.dateKey === dateKey && r.uid === uid) || {};
+  const employee = state.employees.find((e) => e.uid === uid);
+  const record = {
+    ...existing,
+    uid,
+    dateKey,
+    employeeId: existing.employeeId || employee?.employeeId,
+    employeeName: existing.employeeName || employee?.name,
+    checkIn: checkIn || null,
+    checkOut: checkOut || null,
+  };
+
+  elements.saveEditTimeBtn.disabled = true;
+  elements.editTimeHint.textContent = "";
+  try {
+    await saveAttendance(record);
+    closeEditTimeModal();
+  } catch {
+    elements.editTimeHint.textContent = "Failed to save. Please try again.";
+  } finally {
+    elements.saveEditTimeBtn.disabled = false;
+  }
+}
+
+// ---- USERS (Super Admin) ----
+
+function renderUserEmployeeOptions() {
+  if (!elements.userEmployeeLink) return;
+  const sortedEmployees = [...state.employees].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  elements.userEmployeeLink.innerHTML = '<option value="">Select employee...</option>'
+    .concat(sortedEmployees.map((e) => `<option value="${e.uid}">${escapeHtml(e.name)} (${escapeHtml(e.employeeId || e.uid)})</option>`).join(""));
+}
+
+function userRow(user) {
+  const employee = user.employeeUid ? state.employees.find((e) => e.uid === user.employeeUid) : null;
+  const isSelf = user.id === state.user?.uid;
+  return `<tr>
+    <td data-label="Name">${escapeHtml(user.name || "-")}</td>
+    <td data-label="Email">${escapeHtml(user.email || "-")}</td>
+    <td data-label="Role"><span class="pill role-${user.role}">${ROLE_LABELS[user.role] || user.role}</span></td>
+    <td data-label="Linked Employee">${employee ? escapeHtml(employee.name) : "-"}</td>
+    <td data-label="Actions">
+      ${isSelf ? '<span class="support-note">This is you</span>' : `<button class="mini-btn" data-revoke-user="${user.id}" type="button">Revoke Access</button>`}
+    </td>
+  </tr>`;
+}
+
+function renderUsersTable() {
+  if (!elements.usersTableBody) return;
+  elements.usersTableBody.innerHTML = state.users.map(userRow).join("") || '<tr><td colspan="5" class="empty-state">No users yet.</td></tr>';
+  elements.usersTableBody.querySelectorAll("[data-revoke-user]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const userId = btn.getAttribute("data-revoke-user");
+      if (userId && confirm("Revoke this login's access? They will no longer be able to sign in.")) {
+        await revokeUserAccess(userId);
+      }
+    });
+  });
+}
+
+async function createStaffAccount({ email, password, role, name, employeeUid }) {
+  if (!window.firebase.apps.some((a) => a.name === "secondary")) {
+    window.firebase.initializeApp(appConfig.firebase, "secondary");
+  }
+  const secondaryApp = window.firebase.app("secondary");
+  const secondaryAuth = secondaryApp.auth();
+  try {
+    const cred = await secondaryAuth.createUserWithEmailAndPassword(email, password);
+    const uid = cred.user.uid;
+    await state.db.collection("users").doc(uid).set({
+      email: email.trim().toLowerCase(),
+      name: name.trim(),
+      role,
+      employeeUid: role === "employee" ? employeeUid || null : null,
+      createdAt: new Date().toISOString(),
+      createdBy: state.user.email,
+    });
+    await secondaryAuth.signOut();
+    return { ok: true };
+  } catch (error) {
+    try { await secondaryAuth.signOut(); } catch {}
+    const code = error?.code || "";
+    let message = error?.message || "Failed to create login.";
+    if (code.includes("email-already-in-use")) message = "An account with this email already exists.";
+    else if (code.includes("weak-password")) message = "Password must be at least 6 characters.";
+    else if (code.includes("invalid-email")) message = "Invalid email format.";
+    return { ok: false, message };
+  }
+}
+
+async function revokeUserAccess(userId) {
+  try {
+    await state.db.collection("users").doc(userId).delete();
+  } catch (error) {
+    handleFirestoreError(error);
+  }
+}
+
+async function handleUserSubmit(event) {
+  event.preventDefault();
+  const name = elements.userName.value.trim();
+  const email = elements.userEmail.value.trim();
+  const password = elements.userPassword.value;
+  const role = elements.userRole.value;
+  const employeeUid = elements.userEmployeeLink.value;
+
+  if (!name || !email || !password || !role) {
+    elements.userFormHint.textContent = "Please complete all required fields.";
+    return;
+  }
+  if (role === "employee" && !employeeUid) {
+    elements.userFormHint.textContent = "Select the employee this login belongs to.";
+    return;
+  }
+
+  elements.createUserBtn.disabled = true;
+  elements.userFormHint.textContent = "Creating login...";
+  const result = await createStaffAccount({ email, password, role, name, employeeUid });
+  elements.createUserBtn.disabled = false;
+  if (result.ok) {
+    elements.userForm.reset();
+    elements.userRole.dispatchEvent(new Event("change"));
+    elements.userFormHint.textContent = "Login created.";
+  } else {
+    elements.userFormHint.textContent = result.message;
   }
 }
 
@@ -1340,6 +1598,22 @@ function wireEvents() {
       elements.drawerRemarkInput.value = "";
       elements.drawerRemarkDate.value = "";
     }
+  });
+
+  // Users (Super Admin)
+  elements.userForm.addEventListener("submit", handleUserSubmit);
+  elements.userRole.addEventListener("change", () => {
+    elements.userEmployeeLinkWrap.classList.toggle("hidden", elements.userRole.value !== "employee");
+  });
+  elements.userRole.dispatchEvent(new Event("change"));
+
+  // Edit Time modal (Super Admin)
+  elements.closeEditTimeBtn.addEventListener("click", closeEditTimeModal);
+  elements.editTimeBackdrop.addEventListener("click", closeEditTimeModal);
+  elements.saveEditTimeBtn.addEventListener("click", saveEditTime);
+  elements.clearEditTimeBtn.addEventListener("click", () => {
+    elements.editTimeCheckIn.value = "";
+    elements.editTimeCheckOut.value = "";
   });
 }
 

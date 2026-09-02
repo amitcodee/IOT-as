@@ -25,8 +25,12 @@
       </div>
       <form id="empLoginForm" class="login-form">
         <label>
-          <span>Employee ID or UID</span>
-          <input id="empLoginId" type="text" placeholder="e.g. EMP001 or A1B2C3D4" required autocomplete="off" />
+          <span>Email</span>
+          <input id="empLoginEmail" type="email" autocomplete="email" placeholder="you@company.com" required />
+        </label>
+        <label>
+          <span>Password</span>
+          <input id="empLoginPassword" type="password" autocomplete="current-password" placeholder="••••••••" required />
         </label>
         <button class="primary-btn wide-btn" type="submit">View My Attendance</button>
         <p id="empLoginHint" class="support-note"></p>

@@ -65,6 +65,20 @@ button:active {
   transform: translateY(0);
 }
 
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
 input, select, textarea {
   width: 100%;
   border: 1px solid var(--panel-border);
@@ -1085,6 +1099,61 @@ a.mini-btn {
   color: var(--brand);
 }
 
+/* Role badges */
+.pill.role-super_admin, .status-pill.role-super_admin {
+  background: var(--brand-soft);
+  color: var(--brand);
+  border-color: var(--brand-border);
+}
+
+.pill.role-hr, .status-pill.role-hr {
+  background: var(--info-bg);
+  color: var(--info);
+  border-color: transparent;
+}
+
+.pill.role-employee, .status-pill.role-employee {
+  background: var(--success-bg);
+  color: var(--success);
+  border-color: transparent;
+}
+
+.pill.role-device, .status-pill.role-device {
+  background: var(--warning-bg);
+  color: var(--warning);
+  border-color: transparent;
+}
+
+/* Centered modal (Edit Time, etc.) */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(2px);
+  z-index: 110;
+}
+
+.modal-card {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(420px, calc(100vw - 32px));
+  padding: 22px;
+  z-index: 120;
+}
+
+.modal-card .drawer-head {
+  margin-bottom: 4px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
 /* Portal Link */
 .emp-portal-link {
   display: block;
@@ -1287,6 +1356,57 @@ a.mini-btn {
     font-size: 0.65rem;
   }
 
+  /* Card-table: convert data tables to stacked cards on mobile.
+     Opt in with class="card-table" and data-label="…" on each <td>. */
+  .card-table thead {
+    display: none;
+  }
+  .card-table, .card-table tbody {
+    display: block;
+    width: 100%;
+  }
+  .card-table tr {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 12px;
+    padding: 12px;
+    margin-bottom: 8px;
+    border: 1px solid var(--panel-border);
+    border-radius: var(--radius-sm);
+    background: var(--bg);
+  }
+  .card-table tr:hover td {
+    background: transparent;
+  }
+  .card-table td {
+    border: none;
+    padding: 2px 0;
+    font-size: 0.84rem;
+    white-space: normal;
+  }
+  .card-table td::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 2px;
+  }
+  .card-table td:not([data-label])::before {
+    content: none;
+  }
+  .card-table td.empty-state,
+  .card-table td[data-label="Status"],
+  .card-table td[data-label="Location"],
+  .card-table td[data-label="Actions"] {
+    grid-column: 1 / -1;
+  }
+  .card-table td[data-label="Actions"] .mini-btn {
+    width: 100%;
+  }
+
   /* Scanner */
   .scanner-status-block {
     padding: 12px 14px;
@@ -1426,6 +1546,9 @@ a.mini-btn {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .drawer-summary {
+    grid-template-columns: 1fr;
+  }
+  .card-table tr {
     grid-template-columns: 1fr;
   }
 }
