@@ -180,7 +180,7 @@ function renderProfile() {
     <div class="setting-card"><span>Employee ID</span><strong>${emp.employeeId}</strong></div>
     <div class="setting-card"><span>Branch</span><strong>${emp.branch || "-"}</strong></div>
     <div class="setting-card"><span>Department</span><strong>${emp.department}</strong></div>
-    <div class="setting-card"><span>Role</span><strong>${emp.role}</strong></div>
+    <div class="setting-card"><span>Job Title</span><strong>${emp.role}</strong></div>
     <div class="setting-card"><span>Phone</span><strong>${emp.phone || "-"}</strong></div>
   `;
 }

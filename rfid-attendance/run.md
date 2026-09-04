@@ -79,7 +79,7 @@ WARNING: Use 3.3V NOT 5V. The RC522 runs on 3.3V.
 5. Deploy the real rules that ship in this repo: `firebase deploy --only firestore:rules` (see `firestore.rules`).
 6. Bootstrap that first user's role by hand — full steps in `setup.md`, Step 3.6 — then create every other login (HR, employee, the ESP32 device account) from the dashboard's **Users** panel.
 
-The app now has 4 roles: `super_admin` (full access + can edit any employee's attendance time + manages logins), `hr` (manage employees/attendance), `employee` (own attendance only, via `employee.html`), and `device` (the ESP32 firmware account). See `setup.md` for the full breakdown.
+The app now has 4 roles: `super_admin` (full access + can delete employees + can rewrite any already-recorded attendance time + manages logins), `hr` (add/edit employees, run day-to-day attendance — cannot delete employees or rewrite a recorded time), `employee` (own attendance only, via `employee.html`, can only undo their own not-yet-checked-out day), and `device` (the ESP32 firmware account, same scan-flow rules as `hr`). See `setup.md` for the full breakdown.
 
 
 ---

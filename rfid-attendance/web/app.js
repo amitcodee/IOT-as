@@ -324,6 +324,7 @@ async function loadMyRole() {
 function applyRoleUI() {
   const isSuperAdmin = state.role === "super_admin";
   elements.usersNavLink.classList.toggle("hidden", !isSuperAdmin);
+  elements.sampleDataBtn.classList.toggle("hidden", !isSuperAdmin);
   elements.roleStatusPill.textContent = ROLE_LABELS[state.role] || "";
   elements.roleStatusPill.className = `status-pill role-${state.role}`;
 }
@@ -565,17 +566,20 @@ function renderTodayAttendance() {
 }
 
 function employeeRow(employee) {
+  const deleteBtn = state.role === "super_admin"
+    ? `<button class="mini-btn" data-delete-employee="${employee.uid}" type="button">Delete</button>`
+    : "";
   return `<tr>
     <td data-label="UID">${employee.uid}</td>
     <td data-label="ID">${employee.employeeId}</td>
     <td data-label="Name"><strong>${employee.name}</strong></td>
     <td data-label="Branch">${employee.branch || "-"}</td>
     <td data-label="Department">${employee.department}</td>
-    <td data-label="Role">${employee.role}</td>
+    <td data-label="Job Title">${employee.role}</td>
     <td data-label="Actions">
       <button class="mini-btn" data-view-employee="${employee.uid}" type="button">View</button>
       <button class="mini-btn" data-edit-employee="${employee.uid}" type="button">Edit</button>
-      <button class="mini-btn" data-delete-employee="${employee.uid}" type="button">Delete</button>
+      ${deleteBtn}
     </td>
   </tr>`;
 }
@@ -639,7 +643,7 @@ function renderDrawer() {
     <div class="setting-card"><span>Employee ID</span><strong>${employee.employeeId}</strong></div>
     <div class="setting-card"><span>Branch</span><strong>${employee.branch || "-"}</strong></div>
     <div class="setting-card"><span>Department</span><strong>${employee.department}</strong></div>
-    <div class="setting-card"><span>Role</span><strong>${employee.role}</strong></div>
+    <div class="setting-card"><span>Job Title</span><strong>${employee.role}</strong></div>
     <div class="setting-card"><span>Phone</span><strong>${employee.phone || "-"}</strong></div>
   `;
 
@@ -997,6 +1001,7 @@ async function saveEmployee(employee) {
 }
 
 async function deleteEmployee(uid) {
+  if (state.role !== "super_admin") return;
   if (!state.db) {
     state.employees = state.employees.filter((e) => e.uid !== uid);
     state.attendance = state.attendance.filter((e) => e.uid !== uid);
@@ -1326,6 +1331,7 @@ async function processScan(rawUid, source = "manual") {
 }
 
 function loadSampleData() {
+  if (state.db && state.role !== "super_admin") return;
   state.employees = sampleEmployees.map((e) => ({ ...e }));
   state.liveOutput = { status: "success", message: "Sample employees loaded" };
   if (state.db) {

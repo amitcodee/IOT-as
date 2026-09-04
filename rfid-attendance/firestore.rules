@@ -4,13 +4,20 @@ rules_version = '2';
 //  ROLES
 //  Every signed-in account must have a matching users/{uid} doc,
 //  written by a super_admin from the dashboard's Users panel.
-//    super_admin - full access, manages users/roles, can edit any
-//                   employee's attendance time.
-//    hr          - manages employees, attendance and remarks.
+//    super_admin - full access: manages users/roles, can delete
+//                   employees, and is the only role that may rewrite
+//                   an already-set check-in/check-out time (Edit Time).
+//    hr          - manages employees (add/edit, not delete) and
+//                   attendance/remarks day-to-day, but cannot rewrite
+//                   a time that's already been recorded, cannot delete
+//                   employees, and has no login/user management.
 //    device      - the ESP32 firmware account (MY_AUTH_EMAIL in
-//                   rfid_wifi.ino). Reads employees, writes attendance.
-//    employee    - can only read/manage their own attendance record,
-//                   linked via users/{uid}.employeeUid.
+//                   rfid_wifi.ino). Reads employees, writes attendance
+//                   the same way hr's live-scan flow does.
+//    employee    - can only read their own attendance record (linked
+//                   via users/{uid}.employeeUid), verify their scan
+//                   location, and undo their own not-yet-checked-out
+//                   day within the portal's short delete window.
 //  Accounts with no users/{uid} doc have no access at all.
 // ============================================================
 
@@ -55,18 +62,44 @@ service cloud.firestore {
     match /employees/{uid} {
       allow get: if isStaff() || isDevice() || (isEmployee() && myEmployeeUid() == uid);
       allow list: if isStaff();
-      allow write: if isStaff();
+      allow create, update: if isStaff();
+      // Deleting an employee cascades (client-side) to wiping their whole
+      // attendance + remarks history, so it's a super_admin-only action.
+      allow delete: if isSuperAdmin();
     }
 
     match /attendance/{docId} {
+      function changedKeys() {
+        return request.resource.data.diff(resource.data).affectedKeys();
+      }
+
+      // hr/device may create records and carry a check-out from unset to
+      // set (the normal scan flow), but may never rewrite a check-in, and
+      // may never overwrite a check-out that's already been recorded —
+      // only super_admin's Edit Time feature can do that.
+      function staffTimeUnchanged() {
+        return !changedKeys().hasAny(['checkIn'])
+          && (!changedKeys().hasAny(['checkOut']) || resource.data.checkOut == null);
+      }
+
+      // Employees may only touch their own location-verification fields,
+      // and may only "change" checkOut by deleting it (undoing an
+      // accidental duplicate scan) — never by setting it to a new value.
+      function selfServiceAllowed() {
+        return changedKeys().hasOnly(['checkInLocation', 'checkInLocationAt', 'checkOutLocation', 'checkOutLocationAt', 'checkOut'])
+          && (!changedKeys().hasAny(['checkOut']) || !('checkOut' in request.resource.data));
+      }
+
       allow get, list: if isStaff() || (isEmployee() && resource.data.uid == myEmployeeUid());
       allow create: if isStaff() || isDevice();
-      allow update: if isStaff() || isDevice()
-        || (isEmployee()
-            && resource.data.uid == myEmployeeUid()
-            && request.resource.data.diff(resource.data).affectedKeys()
-                 .hasOnly(['checkInLocation', 'checkInLocationAt', 'checkOutLocation', 'checkOutLocationAt', 'checkOut']));
-      allow delete: if isStaff() || (isEmployee() && resource.data.uid == myEmployeeUid());
+      allow update: if isSuperAdmin()
+        || ((isHR() || isDevice()) && staffTimeUnchanged())
+        || (isEmployee() && resource.data.uid == myEmployeeUid() && selfServiceAllowed());
+      // Deleting a whole record removes proof of attendance, so it's
+      // restricted to super_admin, plus an employee undoing their own
+      // not-yet-checked-out day (mirrors the portal's delete button).
+      allow delete: if isSuperAdmin()
+        || (isEmployee() && resource.data.uid == myEmployeeUid() && resource.data.checkOut == null);
     }
 
     match /remarks/{id} {

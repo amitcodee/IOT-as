@@ -74,10 +74,10 @@ The dashboard uses three roles, each stored as a `users/{uid}` document in Fires
 
 | Role | Can do |
 |------|--------|
-| `super_admin` | Everything: manage employees/attendance, create/revoke logins, and **edit any employee's check-in/check-out time directly** |
-| `hr` | Manage employees, attendance and remarks (no login/user management) |
-| `employee` | Sign in to the **Employee Portal** and see only their own attendance |
-| `device` | Read-only on employees + write attendance — used by the ESP32 firmware login |
+| `super_admin` | Everything: manage employees/attendance, create/revoke logins, **delete employees**, and **rewrite any already-recorded check-in/check-out time** (Edit Time) |
+| `hr` | Add/edit employees and run day-to-day attendance (scans, remarks). Cannot delete employees, cannot rewrite a check-in/check-out that's already been recorded, and has no login/user management |
+| `employee` | Sign in to the **Employee Portal** and see only their own attendance; can only undo their own not-yet-checked-out day (no editing of a completed day) |
+| `device` | Read-only on employees + write attendance (same scan-flow rules as `hr`) — used by the ESP32 firmware login |
 
 1. In Firebase Console → **Firestore Database** → **Create Database**
 2. Choose **Start in test mode** for now (the real rules are applied next)
