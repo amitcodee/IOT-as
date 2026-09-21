@@ -1,0 +1,19 @@
+{
+  "name": "rfid-attendance-dashboard",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "node server.mjs",
+    "build:config": "node scripts/build-config.mjs",
+    "deploy": "npm run build:config && firebase deploy",
+    "test": "firebase emulators:exec --config firebase.emulator.json --only auth,firestore --project demo-rfid \"node --test --test-concurrency=1 --test-timeout=60000 tests/*.test.mjs\"",
+    "test:static": "node --test tests/static.test.mjs"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
+    "firebase": "^12.19.0",
+    "playwright-core": "^1.63.0"
+  }
+}

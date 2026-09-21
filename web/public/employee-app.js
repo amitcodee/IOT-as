@@ -176,12 +176,12 @@ function renderProfile() {
   el.empInfoPill.textContent = `${emp.employeeId} | ${emp.department}`;
 
   el.empProfileGrid.innerHTML = `
-    <div class="setting-card"><span>UID</span><strong>${emp.uid}</strong></div>
-    <div class="setting-card"><span>Employee ID</span><strong>${emp.employeeId}</strong></div>
-    <div class="setting-card"><span>Branch</span><strong>${emp.branch || "-"}</strong></div>
-    <div class="setting-card"><span>Department</span><strong>${emp.department}</strong></div>
-    <div class="setting-card"><span>Job Title</span><strong>${emp.role}</strong></div>
-    <div class="setting-card"><span>Phone</span><strong>${emp.phone || "-"}</strong></div>
+    <div class="setting-card"><span>UID</span><strong>${escapeHtml(emp.uid)}</strong></div>
+    <div class="setting-card"><span>Employee ID</span><strong>${escapeHtml(emp.employeeId)}</strong></div>
+    <div class="setting-card"><span>Branch</span><strong>${escapeHtml(emp.branch || "-")}</strong></div>
+    <div class="setting-card"><span>Department</span><strong>${escapeHtml(emp.department)}</strong></div>
+    <div class="setting-card"><span>Job Title</span><strong>${escapeHtml(emp.role)}</strong></div>
+    <div class="setting-card"><span>Phone</span><strong>${escapeHtml(emp.phone || "-")}</strong></div>
   `;
 }
 
@@ -218,28 +218,43 @@ function renderMonthSummary(records) {
   `;
 }
 
-function todayKey() {
-  return new Date().toISOString().slice(0, 10);
+// Local calendar date (YYYY-MM-DD) - must match the local-time dateKey the card reader writes and the
+// local check-in times shown here; a UTC date is a day behind for the first hours of the day in India.
+function todayKey(date = new Date()) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+// Escape anything read from the database before it goes into innerHTML / an attribute.
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+
+// Only finite numbers are ever rendered or put in a URL (the shape comes from the database).
+function validLocation(location) {
+  return Number.isFinite(location?.lat) && Number.isFinite(location?.lng) ? { lat: location.lat, lng: location.lng } : null;
 }
 
 function locationMapsUrl(location) {
-  if (!location) return "";
-  return `https://www.google.com/maps?q=${location.lat},${location.lng}`;
+  const loc = validLocation(location);
+  return loc ? `https://www.google.com/maps?q=${loc.lat},${loc.lng}` : "";
 }
 
 function locationRow(label, location) {
-  const coords = `${location.lat.toFixed(5)}, ${location.lng.toFixed(5)}`;
+  const loc = validLocation(location);
+  if (!loc) return "";
+  const coords = `${loc.lat.toFixed(5)}, ${loc.lng.toFixed(5)}`;
   return `<div class="location-row">
     <span class="location-label">${label}</span>
     <span class="location-coords">${coords}</span>
-    <a href="${locationMapsUrl(location)}" target="_blank" rel="noopener noreferrer" class="mini-btn" title="${label} location">View</a>
+    <a href="${locationMapsUrl(loc)}" target="_blank" rel="noopener noreferrer" class="mini-btn" title="${label} location">View</a>
   </div>`;
 }
 
 function locationCell(record) {
-  const rows = [];
-  if (record.checkInLocation) rows.push(locationRow("In", record.checkInLocation));
-  if (record.checkOutLocation) rows.push(locationRow("Out", record.checkOutLocation));
+  const rows = [locationRow("In", record.checkInLocation), locationRow("Out", record.checkOutLocation)].filter(Boolean);
   return rows.length ? rows.join("") : "-";
 }
 
@@ -438,7 +453,7 @@ function renderAttendance() {
   const currentMonth = state.filterMonth || "";
 
   el.empMonthSelect.innerHTML = '<option value="">All Months</option>' +
-    months.map((m) => `<option value="${m}" ${m === currentMonth ? "selected" : ""}>${getMonthLabel(m)}</option>`).join("");
+    months.map((m) => `<option value="${escapeHtml(m)}" ${m === currentMonth ? "selected" : ""}>${escapeHtml(getMonthLabel(m))}</option>`).join("");
 
   let filtered = state.attendance;
   if (state.filterMonth) {
@@ -464,9 +479,9 @@ function renderAttendance() {
         ? '<span class="pill info">Editable</span>'
         : '<span class="pill done">Locked</span>';
     return `<tr>
-      <td data-label="Date">${record.dateKey || "-"}</td>
-      <td data-label="Check In">${record.checkIn || "-"}</td>
-      <td data-label="Check Out">${record.checkOut || "-"}</td>
+      <td data-label="Date">${escapeHtml(record.dateKey || "-")}</td>
+      <td data-label="Check In">${escapeHtml(record.checkIn || "-")}</td>
+      <td data-label="Check Out">${escapeHtml(record.checkOut || "-")}</td>
       <td data-label="Hours">${hours}</td>
       <td data-label="Status"><span class="pill ${pillClass}">${status}</span></td>
       <td data-label="Location">${locationCell(record)}</td>

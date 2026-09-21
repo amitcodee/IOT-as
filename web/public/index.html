@@ -88,6 +88,10 @@
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
           Users
         </button>
+        <button id="devicesNavLink" class="nav-link hidden" data-view="devicesView" data-route="devices" type="button">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/></svg>
+          Devices
+        </button>
       </nav>
       <div class="sidebar-footer">
         <div>
@@ -421,7 +425,6 @@
                   <option value="super_admin">Super Admin</option>
                   <option value="hr">HR</option>
                   <option value="employee" selected>Employee</option>
-                  <option value="device">Device (RFID scanner)</option>
                 </select>
               </label>
               <label id="userEmployeeLinkWrap">
@@ -460,6 +463,38 @@
             </div>
           </article>
         </div>
+      </section>
+
+      <!-- DEVICES VIEW (Super Admin): approve ESP32 card readers -->
+      <section id="devicesView" class="view">
+        <article class="panel glass-card">
+          <div class="panel-head">
+            <div>
+              <p class="panel-tag">Card Readers</p>
+              <h2>Approve the readers that may record attendance</h2>
+              <p class="support-note" style="margin-top:6px;">
+                A reader has no password. When it is powered on and connected to WiFi it registers itself here as
+                <strong>Pending</strong>. Check the name and ID, then click <strong>Approve</strong>.
+                <strong>Revoke</strong> switches it off again at any time.
+              </p>
+            </div>
+          </div>
+          <div class="table-wrap tall-table">
+            <table class="card-table">
+              <thead>
+                <tr>
+                  <th>Reader</th>
+                  <th>Device ID</th>
+                  <th>First seen</th>
+                  <th>Last seen</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="devicesTableBody"></tbody>
+            </table>
+          </div>
+        </article>
       </section>
 
     </main>

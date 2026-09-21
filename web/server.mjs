@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { loadEnv, getAppConfig } from "./lib/config.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const webDir = path.join(__dirname, "web");
+const webDir = path.join(__dirname, "public");
 
 const mimeTypes = new Map([
   [".html", "text/html; charset=utf-8"],

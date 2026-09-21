@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { loadEnv, getAppConfig } from "../lib/config.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const outPath = path.join(__dirname, "..", "web", "config.js");
+const outPath = path.join(__dirname, "..", "public", "config.js");
 
 function escapeScriptJson(value) {
   return JSON.stringify(value).replace(/</g, "\\u003c");

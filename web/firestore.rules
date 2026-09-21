@@ -11,9 +11,14 @@ rules_version = '2';
 //                   attendance/remarks day-to-day, but cannot rewrite
 //                   a time that's already been recorded, cannot delete
 //                   employees, and has no login/user management.
-//    device      - the ESP32 firmware account (MY_AUTH_EMAIL in
-//                   rfid_wifi.ino). Reads employees, writes attendance
-//                   the same way hr's live-scan flow does.
+//    device      - an ESP32 card reader. It has NO email/password: it signs
+//                   in anonymously, registers itself in devices/{uid} as
+//                   "pending", and a super_admin approves it from the
+//                   dashboard's Devices panel (which writes users/{uid} with
+//                   role 'device'). Once approved it reads single employee /
+//                   attendance documents by id and writes attendance the same
+//                   way hr's live-scan flow does. Cannot list either
+//                   collection. Revoking = deleting its users/{uid} doc.
 //    employee    - can only read their own attendance record (linked
 //                   via users/{uid}.employeeUid), verify their scan
 //                   location, and undo their own not-yet-checked-out
@@ -59,6 +64,29 @@ service cloud.firestore {
       allow delete: if isSuperAdmin() && request.auth.uid != userId;
     }
 
+    // Card readers waiting for / holding approval. The reader (an anonymous account whose uid is the
+    // document id) may create ONE pending record for itself and touch only lastSeenAt afterwards; it
+    // gets no access to anything else until a super_admin approves it (see users/{uid} above).
+    // Whether a reader is approved is derived from users/{uid}, so there is no status field to forge.
+    match /devices/{deviceId} {
+      function isThisAnonymousReader() {
+        return isSignedIn()
+          && request.auth.uid == deviceId
+          && request.auth.token.firebase.sign_in_provider == 'anonymous';
+      }
+
+      allow get: if isSuperAdmin() || (isSignedIn() && request.auth.uid == deviceId);
+      allow list: if isSuperAdmin();
+      allow create: if isThisAnonymousReader()
+        && request.resource.data.keys().hasOnly(['name', 'requestedAt', 'lastSeenAt'])
+        && request.resource.data.name is string && request.resource.data.name.size() <= 40
+        && request.resource.data.requestedAt is string;
+      allow update: if isSuperAdmin()
+        || (isThisAnonymousReader()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastSeenAt']));
+      allow delete: if isSuperAdmin();
+    }
+
     match /employees/{uid} {
       allow get: if isStaff() || isDevice() || (isEmployee() && myEmployeeUid() == uid);
       allow list: if isStaff();
@@ -77,9 +105,12 @@ service cloud.firestore {
       // set (the normal scan flow), but may never rewrite a check-in, and
       // may never overwrite a check-out that's already been recorded —
       // only super_admin's Edit Time feature can do that.
+      // NOTE: use resource.data.get('checkOut', null), never resource.data.checkOut. The field can be
+      // absent entirely (the Employee Portal's "Delete Check-Out" removes the key), and reading a
+      // missing field is an evaluation error, which denies the write.
       function staffTimeUnchanged() {
         return !changedKeys().hasAny(['checkIn'])
-          && (!changedKeys().hasAny(['checkOut']) || resource.data.checkOut == null);
+          && (!changedKeys().hasAny(['checkOut']) || resource.data.get('checkOut', null) == null);
       }
 
       // Employees may only touch their own location-verification fields,
@@ -90,7 +121,10 @@ service cloud.firestore {
           && (!changedKeys().hasAny(['checkOut']) || !('checkOut' in request.resource.data));
       }
 
-      allow get, list: if isStaff() || (isEmployee() && resource.data.uid == myEmployeeUid());
+      // The firmware GETs today's record by id to decide check-in vs check-out, so the device may read
+      // a single document - but not list/query the collection.
+      allow get: if isStaff() || isDevice() || (isEmployee() && resource.data.uid == myEmployeeUid());
+      allow list: if isStaff() || (isEmployee() && resource.data.uid == myEmployeeUid());
       allow create: if isStaff() || isDevice();
       allow update: if isSuperAdmin()
         || ((isHR() || isDevice()) && staffTimeUnchanged())
@@ -99,7 +133,7 @@ service cloud.firestore {
       // restricted to super_admin, plus an employee undoing their own
       // not-yet-checked-out day (mirrors the portal's delete button).
       allow delete: if isSuperAdmin()
-        || (isEmployee() && resource.data.uid == myEmployeeUid() && resource.data.checkOut == null);
+        || (isEmployee() && resource.data.uid == myEmployeeUid() && resource.data.get('checkOut', null) == null);
     }
 
     match /remarks/{id} {

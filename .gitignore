@@ -1,0 +1,3 @@
+# Firmware secrets (WiFi etc.) - never commit. The committed template is secrets.h.example.
+hardware/**/secrets.h
+.DS_Store

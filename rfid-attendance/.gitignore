@@ -1,6 +1,0 @@
-.env
-.DS_Store
-node_modules/
-web/config.js
-.firebase/
-firebase-debug.log

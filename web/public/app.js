@@ -1,6 +1,10 @@
 const appConfig = window.__APP_CONFIG__ || { appName: "TechCADD Attendance", firebase: {} };
 
-
+const sampleEmployees = [
+  { uid: "A1B2C3D4", employeeId: "EMP001", name: "John Smith", department: "Engineering", role: "Engineer", phone: "+91 9000000001" },
+  { uid: "E5F6G7H8", employeeId: "EMP002", name: "Sarah Johnson", department: "Marketing", role: "Lead", phone: "+91 9000000002" },
+  { uid: "I9J0K1L2", employeeId: "EMP003", name: "Mike Wilson", department: "HR", role: "Coordinator", phone: "+91 9000000003" },
+];
 
 const state = {
   user: null,
@@ -8,11 +12,13 @@ const state = {
   db: null,
   role: null,
   users: [],
+  devices: [],
   editTimeRecord: null,
   employees: [],
   attendance: [],
   remarks: [],
   selectedEmployeeUid: "",
+  editingEmployeeUid: "", // set while the Add/Edit form is editing an existing employee
   employeeSearch: "",
   attendanceSearch: "",
   attendanceFrom: "",
@@ -46,6 +52,7 @@ let employeesUnsub = null;
 let attendanceUnsub = null;
 let remarksUnsub = null;
 let usersUnsub = null;
+let devicesUnsub = null;
 
 const ROLE_LABELS = {
   super_admin: "Super Admin",
@@ -54,8 +61,12 @@ const ROLE_LABELS = {
   device: "Device",
 };
 
+// Local calendar date (YYYY-MM-DD). Must be local, not UTC: check-in times (formatTime) and the ESP32
+// firmware's dateKey are both local, so a UTC date would be a day behind for the first hours of the
+// day in timezones ahead of UTC (e.g. 00:00-05:30 in India).
 function todayKey(date = new Date()) {
-  return date.toISOString().slice(0, 10);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
 function formatTime(date = new Date()) {
@@ -64,13 +75,15 @@ function formatTime(date = new Date()) {
 
 function formatTimeAmPm(timeString) {
   if (!timeString) return "";
-  const [hStr, mStr] = timeString.split(":");
+  const [hStr, mStr] = String(timeString).split(":");
   let h = parseInt(hStr, 10);
   if (Number.isNaN(h)) return "";
   const period = h >= 12 ? "PM" : "AM";
   h = h % 12;
   if (h === 0) h = 12;
-  return `${h}:${mStr || "00"} ${period}`;
+  // Digits only: the result is inserted into HTML by several callers.
+  const minutes = String(mStr || "").replace(/\D/g, "").slice(0, 2).padStart(2, "0");
+  return `${h}:${minutes} ${period}`;
 }
 
 function normalizeUid(value) {
@@ -114,7 +127,7 @@ function statusPillClass(status) {
 
 function normalizeAttendanceRecord(record) {
   if (!record) return null;
-  return {
+  const normalized = {
     dateKey: record.dateKey,
     uid: record.uid,
     employeeId: record.employeeId,
@@ -124,6 +137,17 @@ function normalizeAttendanceRecord(record) {
     checkInLocation: record.checkInLocation || null,
     checkOutLocation: record.checkOutLocation || null,
   };
+  // The Employee Portal stamps when a location was verified. Carry those through: leaving them out
+  // here made every dashboard save (scan, Edit Time) silently erase them.
+  if (record.checkInLocationAt) normalized.checkInLocationAt = record.checkInLocationAt;
+  if (record.checkOutLocationAt) normalized.checkOutLocationAt = record.checkOutLocationAt;
+  return normalized;
+}
+
+// Locations come from the database, and an employee can write their own attendance location fields,
+// so never assume the shape: only finite numbers are ever rendered or put in a URL.
+function validLocation(location) {
+  return Number.isFinite(location?.lat) && Number.isFinite(location?.lng) ? { lat: location.lat, lng: location.lng } : null;
 }
 
 function getCurrentLocation(timeoutMs = 8000) {
@@ -147,23 +171,23 @@ function getCurrentLocation(timeoutMs = 8000) {
 }
 
 function locationMapsUrl(location) {
-  if (!location) return "";
-  return `https://www.google.com/maps?q=${location.lat},${location.lng}`;
+  const loc = validLocation(location);
+  return loc ? `https://www.google.com/maps?q=${loc.lat},${loc.lng}` : "";
 }
 
 function locationRow(label, location) {
-  const coords = `${location.lat.toFixed(5)}, ${location.lng.toFixed(5)}`;
+  const loc = validLocation(location);
+  if (!loc) return "";
+  const coords = `${loc.lat.toFixed(5)}, ${loc.lng.toFixed(5)}`;
   return `<div class="location-row">
     <span class="location-label">${label}</span>
     <span class="location-coords">${coords}</span>
-    <a href="${locationMapsUrl(location)}" target="_blank" rel="noopener noreferrer" class="mini-btn" title="${label} location">View</a>
+    <a href="${locationMapsUrl(loc)}" target="_blank" rel="noopener noreferrer" class="mini-btn" title="${label} location">View</a>
   </div>`;
 }
 
 function locationCell(record) {
-  const rows = [];
-  if (record.checkInLocation) rows.push(locationRow("In", record.checkInLocation));
-  if (record.checkOutLocation) rows.push(locationRow("Out", record.checkOutLocation));
+  const rows = [locationRow("In", record.checkInLocation), locationRow("Out", record.checkOutLocation)].filter(Boolean);
   return rows.length ? rows.join("") : "-";
 }
 
@@ -213,8 +237,9 @@ function shiftMonth(ym, delta) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
+// Escape anything read from the database before it goes into innerHTML / an attribute.
 function escapeHtml(value) {
-  return String(value || "").replace(/[&<>"']/g, (c) => ({
+  return String(value ?? "").replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   }[c]));
 }
@@ -231,6 +256,7 @@ function cacheElements() {
     "signOutBtn", "signOutBtnSecondary",
     "dashboardView", "employeeAddView", "managerView", "attendanceTodayView",
     "attendanceView", "calendarView", "settingsView", "usersView", "usersNavLink",
+    "devicesView", "devicesNavLink", "devicesTableBody",
     "userForm", "userName", "userEmail", "userPassword", "userRole",
     "userEmployeeLinkWrap", "userEmployeeLink", "userFormHint", "usersTableBody", "createUserBtn",
     "editTimeBackdrop", "editTimeModal", "editTimeTitle", "closeEditTimeBtn",
@@ -324,6 +350,7 @@ async function loadMyRole() {
 function applyRoleUI() {
   const isSuperAdmin = state.role === "super_admin";
   elements.usersNavLink.classList.toggle("hidden", !isSuperAdmin);
+  elements.devicesNavLink.classList.toggle("hidden", !isSuperAdmin);
   elements.sampleDataBtn.classList.toggle("hidden", !isSuperAdmin);
   elements.roleStatusPill.textContent = ROLE_LABELS[state.role] || "";
   elements.roleStatusPill.className = `status-pill role-${state.role}`;
@@ -375,6 +402,7 @@ const VIEW_LABELS = {
   calendarView: "Calendar",
   settingsView: "Settings",
   usersView: "Users",
+  devicesView: "Devices",
 };
 
 function setView(viewId) {
@@ -411,6 +439,11 @@ function router() {
   if (section === "users") {
     if (state.role !== "super_admin") { location.hash = "#dashboard"; return; }
     setView("usersView");
+    return;
+  }
+  if (section === "devices") {
+    if (state.role !== "super_admin") { location.hash = "#dashboard"; return; }
+    setView("devicesView");
     return;
   }
   setView("dashboardView");
@@ -480,8 +513,20 @@ function readUsers() {
     return null;
   }
   return state.db.collection("users").onSnapshot((snap) => {
-    state.users = snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (a.email || "").localeCompare(b.email || ""));
+    state.users = snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (a.email || a.name || "").localeCompare(b.email || b.name || ""));
     renderUsersTable();
+    renderDevicesTable(); // a reader's Pending/Approved status comes from its users/{uid} doc
+  }, handleFirestoreError);
+}
+
+function readDevices() {
+  if (!state.db || state.role !== "super_admin") {
+    state.devices = [];
+    return null;
+  }
+  return state.db.collection("devices").onSnapshot((snap) => {
+    state.devices = snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => String(b.requestedAt || "").localeCompare(String(a.requestedAt || "")));
+    renderDevicesTable();
   }, handleFirestoreError);
 }
 
@@ -496,10 +541,12 @@ async function loadData() {
   if (attendanceUnsub) attendanceUnsub();
   if (remarksUnsub) remarksUnsub();
   if (usersUnsub) usersUnsub();
+  if (devicesUnsub) devicesUnsub();
   employeesUnsub = readEmployees();
   attendanceUnsub = readAttendance();
   remarksUnsub = readRemarks();
   usersUnsub = readUsers();
+  devicesUnsub = readDevices();
 }
 
 function filterBySearch(items, search, fields) {
@@ -527,7 +574,7 @@ function renderMetrics() {
 
 function editTimeButton(record) {
   if (state.role !== "super_admin") return "-";
-  return `<button class="mini-btn" data-edit-time="${record.dateKey}|${record.uid}" type="button">Edit Time</button>`;
+  return `<button class="mini-btn" data-edit-time="${escapeHtml(record.dateKey)}|${escapeHtml(record.uid)}" type="button">Edit Time</button>`;
 }
 
 function attendanceRow(record) {
@@ -536,12 +583,12 @@ function attendanceRow(record) {
   const pillClass = statusPillClass(status);
   const day = record.dateKey ? getWeekdayShort(record.dateKey) : "-";
   return `<tr>
-    <td data-label="Date">${record.dateKey || "-"}</td>
-    <td data-label="Day">${day}</td>
-    <td data-label="Name">${getEmployeeName(record.uid)}</td>
-    <td data-label="UID">${record.uid}</td>
-    <td data-label="Check In">${record.checkIn ? formatTimeAmPm(record.checkIn) : "-"}</td>
-    <td data-label="Check Out">${record.checkOut ? formatTimeAmPm(record.checkOut) : "-"}</td>
+    <td data-label="Date">${escapeHtml(record.dateKey || "-")}</td>
+    <td data-label="Day">${escapeHtml(day)}</td>
+    <td data-label="Name">${escapeHtml(getEmployeeName(record.uid))}</td>
+    <td data-label="UID">${escapeHtml(record.uid)}</td>
+    <td data-label="Check In">${record.checkIn ? escapeHtml(formatTimeAmPm(record.checkIn)) : "-"}</td>
+    <td data-label="Check Out">${record.checkOut ? escapeHtml(formatTimeAmPm(record.checkOut)) : "-"}</td>
     <td data-label="Hours">${hours}</td>
     <td data-label="Status"><span class="pill ${pillClass}">${status}</span></td>
     <td data-label="Location">${locationCell(record)}</td>
@@ -567,18 +614,18 @@ function renderTodayAttendance() {
 
 function employeeRow(employee) {
   const deleteBtn = state.role === "super_admin"
-    ? `<button class="mini-btn" data-delete-employee="${employee.uid}" type="button">Delete</button>`
+    ? `<button class="mini-btn" data-delete-employee="${escapeHtml(employee.uid)}" type="button">Delete</button>`
     : "";
   return `<tr>
-    <td data-label="UID">${employee.uid}</td>
-    <td data-label="ID">${employee.employeeId}</td>
-    <td data-label="Name"><strong>${employee.name}</strong></td>
-    <td data-label="Branch">${employee.branch || "-"}</td>
-    <td data-label="Department">${employee.department}</td>
-    <td data-label="Job Title">${employee.role}</td>
+    <td data-label="UID">${escapeHtml(employee.uid)}</td>
+    <td data-label="ID">${escapeHtml(employee.employeeId)}</td>
+    <td data-label="Name"><strong>${escapeHtml(employee.name)}</strong></td>
+    <td data-label="Branch">${escapeHtml(employee.branch || "-")}</td>
+    <td data-label="Department">${escapeHtml(employee.department)}</td>
+    <td data-label="Job Title">${escapeHtml(employee.role)}</td>
     <td data-label="Actions">
-      <button class="mini-btn" data-view-employee="${employee.uid}" type="button">View</button>
-      <button class="mini-btn" data-edit-employee="${employee.uid}" type="button">Edit</button>
+      <button class="mini-btn" data-view-employee="${escapeHtml(employee.uid)}" type="button">View</button>
+      <button class="mini-btn" data-edit-employee="${escapeHtml(employee.uid)}" type="button">Edit</button>
       ${deleteBtn}
     </td>
   </tr>`;
@@ -606,7 +653,7 @@ function renderAttendanceEmployeeFilter() {
   if (!elements.attendanceEmployeeFilter) return;
   const sortedEmployees = [...state.employees].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   const options = ['<option value="">All Employees</option>']
-    .concat(sortedEmployees.map((e) => `<option value="${e.uid}" ${e.uid === state.attendanceEmployeeUid ? "selected" : ""}>${escapeHtml(e.name)}</option>`));
+    .concat(sortedEmployees.map((e) => `<option value="${escapeHtml(e.uid)}" ${e.uid === state.attendanceEmployeeUid ? "selected" : ""}>${escapeHtml(e.name)}</option>`));
   elements.attendanceEmployeeFilter.innerHTML = options.join("");
 }
 
@@ -639,12 +686,12 @@ function renderDrawer() {
 
   elements.drawerEmployeeName.textContent = employee.name;
   elements.drawerSummary.innerHTML = `
-    <div class="setting-card"><span>UID</span><strong>${employee.uid}</strong></div>
-    <div class="setting-card"><span>Employee ID</span><strong>${employee.employeeId}</strong></div>
-    <div class="setting-card"><span>Branch</span><strong>${employee.branch || "-"}</strong></div>
-    <div class="setting-card"><span>Department</span><strong>${employee.department}</strong></div>
-    <div class="setting-card"><span>Job Title</span><strong>${employee.role}</strong></div>
-    <div class="setting-card"><span>Phone</span><strong>${employee.phone || "-"}</strong></div>
+    <div class="setting-card"><span>UID</span><strong>${escapeHtml(employee.uid)}</strong></div>
+    <div class="setting-card"><span>Employee ID</span><strong>${escapeHtml(employee.employeeId)}</strong></div>
+    <div class="setting-card"><span>Branch</span><strong>${escapeHtml(employee.branch || "-")}</strong></div>
+    <div class="setting-card"><span>Department</span><strong>${escapeHtml(employee.department)}</strong></div>
+    <div class="setting-card"><span>Job Title</span><strong>${escapeHtml(employee.role)}</strong></div>
+    <div class="setting-card"><span>Phone</span><strong>${escapeHtml(employee.phone || "-")}</strong></div>
   `;
 
   renderDrawerCalendar(employee);
@@ -654,10 +701,10 @@ function renderDrawer() {
   elements.drawerRemarkList.innerHTML = empRemarks.length
     ? empRemarks.map((r) => `<div class="remark-item">
         <div style="display:flex;justify-content:space-between;align-items:center;">
-          <strong>${r.date || "-"}</strong>
-          <button class="mini-btn" data-delete-remark="${r.id}" type="button" style="padding:4px 8px;font-size:0.75rem;">Delete</button>
+          <strong>${escapeHtml(r.date || "-")}</strong>
+          <button class="mini-btn" data-delete-remark="${escapeHtml(r.id)}" type="button" style="padding:4px 8px;font-size:0.75rem;">Delete</button>
         </div>
-        ${r.text}
+        ${escapeHtml(r.text)}
       </div>`).join("")
     : '<div class="empty-state" style="font-size:0.85rem;">No remarks yet.</div>';
 
@@ -674,7 +721,7 @@ function renderDrawer() {
   // Month select
   const months = getMonthOptions(empRecords);
   const currentMonth = state.drawerMonth || months[0] || "";
-  elements.drawerMonthSelect.innerHTML = '<option value="">All Months</option>' + months.map((m) => `<option value="${m}" ${m === currentMonth ? "selected" : ""}>${getMonthLabel(m)}</option>`).join("");
+  elements.drawerMonthSelect.innerHTML = '<option value="">All Months</option>' + months.map((m) => `<option value="${escapeHtml(m)}" ${m === currentMonth ? "selected" : ""}>${escapeHtml(getMonthLabel(m))}</option>`).join("");
 
   // Filter records
   let filtered = empRecords;
@@ -713,9 +760,9 @@ function renderDrawer() {
     const status = calcStatus(record);
     const pillClass = statusPillClass(status);
     return `<tr>
-      <td data-label="Date">${record.dateKey}</td>
-      <td data-label="Check In">${record.checkIn || "-"}</td>
-      <td data-label="Check Out">${record.checkOut || "-"}</td>
+      <td data-label="Date">${escapeHtml(record.dateKey)}</td>
+      <td data-label="Check In">${escapeHtml(record.checkIn || "-")}</td>
+      <td data-label="Check Out">${escapeHtml(record.checkOut || "-")}</td>
       <td data-label="Hours">${hours}</td>
       <td data-label="Status"><span class="pill ${pillClass}">${status}</span></td>
       <td data-label="Location">${locationCell(record)}</td>
@@ -918,9 +965,9 @@ function renderScanFeed() {
   }
   elements.scanFeed.innerHTML = state.scanFeed.slice(0, 6).map((entry) => `
     <div class="feed-item">
-      <strong>${entry.name || "Unknown"} <span class="pill ${entry.type === "error" ? "error" : entry.type === "CHECK_OUT" ? "out" : entry.type === "CHECK_IN" ? "info" : "done"}">${entry.type}</span></strong>
-      <span>${entry.message}</span>
-      <span>${entry.uid || "No UID"} &bull; ${entry.time} &bull; ${entry.source}</span>
+      <strong>${escapeHtml(entry.name || "Unknown")} <span class="pill ${entry.type === "error" ? "error" : entry.type === "CHECK_OUT" ? "out" : entry.type === "CHECK_IN" ? "info" : "done"}">${escapeHtml(entry.type)}</span></strong>
+      <span>${escapeHtml(entry.message)}</span>
+      <span>${escapeHtml(entry.uid || "No UID")} &bull; ${escapeHtml(entry.time)} &bull; ${escapeHtml(entry.source)}</span>
     </div>
   `).join("");
 }
@@ -946,6 +993,8 @@ function renderAll() {
 // ---- ACTIONS ----
 
 function clearEmployeeForm() {
+  state.editingEmployeeUid = "";
+  elements.employeeUid.readOnly = false;
   elements.employeeForm.reset();
   elements.employeeUid.focus();
 }
@@ -953,6 +1002,10 @@ function clearEmployeeForm() {
 function fillEmployeeForm(uid) {
   const emp = state.employees.find((e) => e.uid === uid);
   if (!emp) return;
+  // The card UID is the employee's database key (attendance and remarks point at it), so it can't be
+  // changed while editing; typing a different one would create a second employee instead.
+  state.editingEmployeeUid = emp.uid;
+  elements.employeeUid.readOnly = true;
   elements.employeeUid.value = emp.uid;
   elements.employeeId.value = emp.employeeId || "";
   elements.employeeName.value = emp.name || "";
@@ -1041,7 +1094,9 @@ async function saveAttendance(record) {
   }
   const payload = normalizeAttendanceRecord(record);
   try {
-    await state.db.collection("attendance").doc(`${record.dateKey}_${record.uid}`).set(payload);
+    // merge: never replace the whole document, so fields this dashboard doesn't know about
+    // (e.g. values written by the Employee Portal) survive a scan or an Edit Time.
+    await state.db.collection("attendance").doc(`${record.dateKey}_${record.uid}`).set(payload, { merge: true });
   } catch (error) {
     handleFirestoreError(error);
     throw error;
@@ -1110,7 +1165,7 @@ function renderUserEmployeeOptions() {
   if (!elements.userEmployeeLink) return;
   const sortedEmployees = [...state.employees].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   elements.userEmployeeLink.innerHTML = '<option value="">Select employee...</option>'
-    .concat(sortedEmployees.map((e) => `<option value="${e.uid}">${escapeHtml(e.name)} (${escapeHtml(e.employeeId || e.uid)})</option>`).join(""));
+    .concat(sortedEmployees.map((e) => `<option value="${escapeHtml(e.uid)}">${escapeHtml(e.name)} (${escapeHtml(e.employeeId || e.uid)})</option>`).join(""));
 }
 
 function userRow(user) {
@@ -1119,10 +1174,10 @@ function userRow(user) {
   return `<tr>
     <td data-label="Name">${escapeHtml(user.name || "-")}</td>
     <td data-label="Email">${escapeHtml(user.email || "-")}</td>
-    <td data-label="Role"><span class="pill role-${user.role}">${ROLE_LABELS[user.role] || user.role}</span></td>
+    <td data-label="Role"><span class="pill role-${escapeHtml(user.role)}">${escapeHtml(ROLE_LABELS[user.role] || user.role)}</span></td>
     <td data-label="Linked Employee">${employee ? escapeHtml(employee.name) : "-"}</td>
     <td data-label="Actions">
-      ${isSelf ? '<span class="support-note">This is you</span>' : `<button class="mini-btn" data-revoke-user="${user.id}" type="button">Revoke Access</button>`}
+      ${isSelf ? '<span class="support-note">This is you</span>' : `<button class="mini-btn" data-revoke-user="${escapeHtml(user.id)}" type="button">Revoke Access</button>`}
     </td>
   </tr>`;
 }
@@ -1138,6 +1193,86 @@ function renderUsersTable() {
       }
     });
   });
+}
+
+// ---- DEVICES (Super Admin): approve ESP32 card readers ----
+// A reader has no password. It signs in anonymously and registers devices/{uid} as pending; approving
+// it writes users/{uid} with role "device" (that doc is what the security rules check). Revoking deletes it.
+
+function formatWhen(iso) {
+  if (!iso) return "-";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "-" : d.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+}
+
+function deviceIsApproved(deviceId) {
+  return state.users.some((u) => u.id === deviceId && u.role === "device");
+}
+
+function deviceRow(device) {
+  const approved = deviceIsApproved(device.id);
+  const id = escapeHtml(device.id);
+  const actions = approved
+    ? `<button class="mini-btn" data-revoke-device="${id}" type="button">Revoke</button>`
+    : `<button class="mini-btn" data-approve-device="${id}" type="button">Approve</button>`;
+  return `<tr>
+    <td data-label="Reader"><strong>${escapeHtml(device.name || "Card reader")}</strong></td>
+    <td data-label="Device ID"><code>${escapeHtml(String(device.id).slice(0, 8))}&hellip;</code></td>
+    <td data-label="First seen">${escapeHtml(formatWhen(device.requestedAt))}</td>
+    <td data-label="Last seen">${escapeHtml(formatWhen(device.lastSeenAt))}</td>
+    <td data-label="Status"><span class="pill ${approved ? "done" : "info"}">${approved ? "Approved" : "Pending"}</span></td>
+    <td data-label="Actions">${actions} <button class="mini-btn" data-remove-device="${id}" type="button">Remove</button></td>
+  </tr>`;
+}
+
+function renderDevicesTable() {
+  if (!elements.devicesTableBody) return;
+  elements.devicesTableBody.innerHTML = state.devices.map(deviceRow).join("")
+    || '<tr><td colspan="6" class="empty-state">No card readers yet. Power on a reader flashed with the WiFi firmware and it will appear here as Pending.</td></tr>';
+  const wire = (attr, fn) => elements.devicesTableBody.querySelectorAll(`[${attr}]`).forEach((btn) => {
+    btn.addEventListener("click", () => fn(btn.getAttribute(attr)));
+  });
+  wire("data-approve-device", approveDevice);
+  wire("data-revoke-device", (id) => { if (confirm("Revoke this reader? It will stop recording attendance until you approve it again.")) revokeDevice(id); });
+  wire("data-remove-device", (id) => { if (confirm("Remove this reader from the list? (It will show up as Pending again if it is still switched on.)")) removeDevice(id); });
+}
+
+async function approveDevice(deviceId) {
+  const device = state.devices.find((d) => d.id === deviceId);
+  if (!device || state.role !== "super_admin" || !state.db) return;
+  try {
+    await state.db.collection("users").doc(deviceId).set({
+      email: null,
+      name: String(device.name || "Card reader"),
+      role: "device",
+      employeeUid: null,
+      createdAt: new Date().toISOString(),
+      createdBy: state.user.email,
+    });
+  } catch (error) {
+    handleFirestoreError(error);
+  }
+}
+
+async function revokeDevice(deviceId) {
+  if (state.role !== "super_admin" || !state.db) return;
+  try {
+    await state.db.collection("users").doc(deviceId).delete();
+  } catch (error) {
+    handleFirestoreError(error);
+  }
+}
+
+async function removeDevice(deviceId) {
+  if (state.role !== "super_admin" || !state.db) return;
+  try {
+    const batch = state.db.batch();
+    batch.delete(state.db.collection("users").doc(deviceId));
+    batch.delete(state.db.collection("devices").doc(deviceId));
+    await batch.commit();
+  } catch (error) {
+    handleFirestoreError(error);
+  }
 }
 
 async function createStaffAccount({ email, password, role, name, employeeUid }) {
@@ -1297,14 +1432,28 @@ async function processScan(rawUid, source = "manual") {
     daily.employeeName = daily.employeeName || employee.name;
   }
 
+  // A rejected save (permission denied, offline...) must not look like a successful scan, and must not
+  // leave the 90 s serial cooldown blocking the retry.
+  const failScan = () => {
+    scanCooldowns.delete(uid);
+    state.scanFeed.unshift({ uid, type: "error", name: employee.name, message: "Scan was NOT saved", time, source });
+    state.scanFeed = state.scanFeed.slice(0, 8);
+    renderAll();
+  };
+
   if (!daily) {
     const checkInLocation = await getCurrentLocation();
     daily = { uid, employeeId: employee.employeeId, employeeName: employee.name, dateKey, checkIn: time, checkOut: null, checkInLocation };
+    try {
+      await saveAttendance(daily);
+    } catch {
+      failScan(); // saveAttendance already put the reason in the live output
+      return;
+    }
     state.liveOutput = { status: "success", type: "CHECK_IN", employee: employee.name, employee_id: employee.employeeId, check_in: time, uid, location: checkInLocation };
     state.scanFeed.unshift({ uid, type: "CHECK_IN", name: employee.name, message: `${employee.name} checked in`, time, source });
     state.scanFeed = state.scanFeed.slice(0, 8);
-    state.attendance.unshift(daily);
-    await saveAttendance(daily);
+    if (!state.attendance.some((e) => e.uid === uid && e.dateKey === dateKey)) state.attendance.unshift(daily);
     renderAll();
     return;
   }
@@ -1313,13 +1462,18 @@ async function processScan(rawUid, source = "manual") {
     const checkOutLocation = await getCurrentLocation();
     daily.checkOut = time;
     daily.checkOutLocation = checkOutLocation;
+    try {
+      await saveAttendance(daily);
+    } catch {
+      failScan();
+      return;
+    }
     state.liveOutput = { status: "success", type: "CHECK_OUT", employee: employee.name, employee_id: employee.employeeId, check_in: daily.checkIn, check_out: time, uid, location: checkOutLocation };
     state.scanFeed.unshift({ uid, type: "CHECK_OUT", name: employee.name, message: `${employee.name} checked out`, time, source });
     state.scanFeed = state.scanFeed.slice(0, 8);
     const idx = state.attendance.findIndex((e) => e.uid === uid && e.dateKey === dateKey);
     if (idx >= 0) state.attendance[idx] = daily;
     else state.attendance.unshift(daily);
-    await saveAttendance(daily);
     renderAll();
     return;
   }
@@ -1382,6 +1536,24 @@ async function handleEmployeeSubmit(event) {
     alert("Please complete all required fields.");
     return;
   }
+
+  // A card can belong to only one employee, and an Employee ID to only one person. Without these
+  // checks, saving silently overwrote whoever already had that card / ID.
+  if (state.editingEmployeeUid) {
+    employee.uid = state.editingEmployeeUid;
+  } else {
+    const cardOwner = state.employees.find((e) => e.uid === employee.uid);
+    if (cardOwner) {
+      alert(`Card ${employee.uid} is already assigned to ${cardOwner.name} (${cardOwner.employeeId}). Use a different card, or edit that employee.`);
+      return;
+    }
+  }
+  const idOwner = state.employees.find((e) => e.uid !== employee.uid && String(e.employeeId || "").toLowerCase() === employee.employeeId.toLowerCase());
+  if (idOwner) {
+    alert(`Employee ID ${employee.employeeId} is already used by ${idOwner.name}.`);
+    return;
+  }
+
   await saveEmployee(employee);
   clearEmployeeForm();
   renderAll();
@@ -1463,6 +1635,8 @@ function bindNavButtons() {
   document.querySelectorAll("[data-route]").forEach((btn) => {
     btn.addEventListener("click", () => {
       closeSidebar();
+      // Clicking "Add Employee" in the menu means a NEW employee: drop any half-finished edit (and its locked UID).
+      if (btn.dataset.route === "employees/add" && state.editingEmployeeUid) clearEmployeeForm();
       const target = `#${btn.dataset.route}`;
       if (location.hash === target) {
         router();
