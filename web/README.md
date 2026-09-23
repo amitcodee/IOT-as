@@ -37,7 +37,7 @@ Only `public/` and the rules are published by `npm run deploy`. Tests, `node_mod
    name:  "Admin"                    (string)
    role:  "super_admin"              (string)
    ```
-Every other login (HR, employees) is created from the dashboard's **Users** panel; readers are approved in **Devices**.
+Every other login is created from the dashboard's **Users** panel: the Super Admin creates HR logins, and HR creates employee logins. Card readers are approved in **Devices**.
 
 ## 3. Configure and run
 
@@ -83,14 +83,15 @@ Any static host (Vercel, Netlify ...) also works: run `npm run build:config`, th
 | Role | Can do |
 |---|---|
 | `super_admin` | Everything: employees, attendance, **Users** (logins), **Devices** (approve readers), delete employees, **Edit Time** on any recorded time |
-| `hr` | Add / edit employees, assign cards, see attendance, make remarks. Cannot delete employees, cannot rewrite a recorded time, no Users / Devices |
+| `hr` | Add / edit employees, assign cards, see attendance, make remarks, and **create / revoke employee logins** (Users panel, employee role only). Cannot delete employees, cannot rewrite a recorded time, cannot create HR / admin logins, no Devices |
 | `employee` | Employee Portal: own attendance only; verify location; undo their own not-yet-checked-out day |
 | `device` | A **card reader**. Not a person: it is approved from **Devices**, reads a single employee / attendance record by id and writes attendance. Cannot list anything |
 
 ## Using the dashboard
 
 - **Add Employee**: type the card UID (see the reader's Serial Monitor when you tap it), ID, name, branch, department, role. A card UID or Employee ID that is already in use is refused.
-- **Users** (Super Admin): create HR / Super Admin / employee logins; **Revoke Access** cuts a login off.
+- **Who makes whom:** the **Super Admin makes HR** (and other Super Admin) logins; **HR makes employee** logins. HR first adds the employee (card) under *Add Employee*, then opens **Users**, picks that employee under *Linked Employee*, and sets an email + temporary password. HR only ever sees and manages employee logins, never HR or admin ones. The database rules enforce this, not just the screens.
+- **Users**: create logins as above; **Revoke Access** cuts a login off (HR can revoke employee logins only).
 - **Devices** (Super Admin): a reader that is powered on and on WiFi appears as **Pending**. Check its name, click **Approve**. **Revoke** switches it off; **Remove** clears the entry (it reappears as Pending if the reader is still on).
 - **Attendance Today / Attendance / Calendar**: history and filters. Super Admin gets **Edit Time**.
 

@@ -8,9 +8,10 @@ rules_version = '2';
 //                   employees, and is the only role that may rewrite
 //                   an already-set check-in/check-out time (Edit Time).
 //    hr          - manages employees (add/edit, not delete) and
-//                   attendance/remarks day-to-day, but cannot rewrite
-//                   a time that's already been recorded, cannot delete
-//                   employees, and has no login/user management.
+//                   attendance/remarks day-to-day, and creates / revokes
+//                   EMPLOYEE logins (only). Cannot rewrite a time that's
+//                   already been recorded, cannot delete employees, and
+//                   cannot create HR / admin logins or approve readers.
 //    device      - an ESP32 card reader. It has NO email/password: it signs
 //                   in anonymously, registers itself in devices/{uid} as
 //                   "pending", and a super_admin approves it from the
@@ -55,13 +56,29 @@ service cloud.firestore {
     function isDevice()     { return hasRole() && myRole() == 'device'; }
     function isEmployee()   { return hasRole() && myRole() == 'employee'; }
 
-    // Login/role directory. Only a super_admin may create accounts or
-    // change roles; anyone may read their own record to discover their role.
+    // Login/role directory.
+    //   super_admin - creates / changes / revokes any login and sees them all.
+    //   hr          - may create and revoke ONLY employee logins, and sees only those. A new
+    //                 employee login must be linked to an EXISTING employee record and carry no
+    //                 extra fields. hr can never create or change an hr / super_admin / device
+    //                 role, and can never overwrite an existing login doc (create only, no update).
+    //   everyone    - may read their own record to discover their role.
     match /users/{userId} {
-      allow get: if isSignedIn() && (isSuperAdmin() || request.auth.uid == userId);
-      allow list: if isSuperAdmin();
-      allow create, update: if isSuperAdmin();
-      allow delete: if isSuperAdmin() && request.auth.uid != userId;
+      function validNewEmployeeLogin() {
+        return request.resource.data.role == 'employee'
+          && request.resource.data.keys().hasOnly(['email', 'name', 'role', 'employeeUid', 'createdAt', 'createdBy'])
+          && request.resource.data.employeeUid is string
+          && exists(/databases/$(database)/documents/employees/$(request.resource.data.employeeUid));
+      }
+
+      allow get: if isSignedIn()
+        && (isSuperAdmin() || request.auth.uid == userId || (isHR() && resource.data.role == 'employee'));
+      // hr's list query must itself filter  where("role", "==", "employee")
+      allow list: if isSuperAdmin() || (isHR() && resource.data.role == 'employee');
+      allow create: if isSuperAdmin() || (isHR() && validNewEmployeeLogin());
+      allow update: if isSuperAdmin();
+      allow delete: if (isSuperAdmin() && request.auth.uid != userId)
+        || (isHR() && resource.data.role == 'employee');
     }
 
     // Card readers waiting for / holding approval. The reader (an anonymous account whose uid is the

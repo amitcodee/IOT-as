@@ -18,7 +18,7 @@ IOT-as/
 
 | What | Where | Committed to git? |
 |---|---|---|
-| Admin / HR / employee **email + password** | Firebase Console (first Super Admin) and the dashboard's **Users** panel | No - never in a file |
+| Admin / HR / employee **email + password** | Firebase Console (first Super Admin), then the dashboard's **Users** panel: **Super Admin makes HR, HR makes employees** | No - never in a file |
 | Firebase web config | `web/.env` | No (`.gitignore`) |
 | WiFi name + password, Firebase project id, reader name | `hardware/rfid_wifi/secrets.h` | No (`.gitignore`); template: `secrets.h.example` |
 | Permission for a reader to write attendance | Approved by a Super Admin in the dashboard's **Devices** panel | It lives in the database |

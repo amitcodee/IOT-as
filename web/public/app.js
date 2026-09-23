@@ -257,6 +257,7 @@ function cacheElements() {
     "dashboardView", "employeeAddView", "managerView", "attendanceTodayView",
     "attendanceView", "calendarView", "settingsView", "usersView", "usersNavLink",
     "devicesView", "devicesNavLink", "devicesTableBody",
+    "usersFormTitle", "usersListTitle",
     "userForm", "userName", "userEmail", "userPassword", "userRole",
     "userEmployeeLinkWrap", "userEmployeeLink", "userFormHint", "usersTableBody", "createUserBtn",
     "editTimeBackdrop", "editTimeModal", "editTimeTitle", "closeEditTimeBtn",
@@ -347,9 +348,25 @@ async function loadMyRole() {
   }
 }
 
+// Who may create logins: the Super Admin makes any kind (HR, admin, employee); HR makes employee logins only.
+function canManageLogins() {
+  return state.role === "super_admin" || state.role === "hr";
+}
+
+function applyUsersPanelForRole() {
+  const isHr = state.role === "hr";
+  elements.userRole.innerHTML = isHr
+    ? '<option value="employee" selected>Employee</option>'
+    : '<option value="super_admin">Super Admin</option><option value="hr">HR</option><option value="employee" selected>Employee</option>';
+  elements.userRole.dispatchEvent(new Event("change"));
+  elements.usersFormTitle.textContent = isHr ? "Give an employee a login" : "Add super admin, HR or employee access";
+  elements.usersListTitle.textContent = isHr ? "Employees who can sign in" : "Everyone who can sign in";
+}
+
 function applyRoleUI() {
   const isSuperAdmin = state.role === "super_admin";
-  elements.usersNavLink.classList.toggle("hidden", !isSuperAdmin);
+  elements.usersNavLink.classList.toggle("hidden", !canManageLogins());
+  applyUsersPanelForRole();
   elements.devicesNavLink.classList.toggle("hidden", !isSuperAdmin);
   elements.sampleDataBtn.classList.toggle("hidden", !isSuperAdmin);
   elements.roleStatusPill.textContent = ROLE_LABELS[state.role] || "";
@@ -437,7 +454,7 @@ function router() {
   if (section === "attendance") { setView("attendanceView"); return; }
   if (section === "settings") { setView("settingsView"); return; }
   if (section === "users") {
-    if (state.role !== "super_admin") { location.hash = "#dashboard"; return; }
+    if (!canManageLogins()) { location.hash = "#dashboard"; return; }
     setView("usersView");
     return;
   }
@@ -508,11 +525,14 @@ function readRemarks() {
 }
 
 function readUsers() {
-  if (!state.db || state.role !== "super_admin") {
+  if (!state.db || !canManageLogins()) {
     state.users = [];
     return null;
   }
-  return state.db.collection("users").onSnapshot((snap) => {
+  // HR only ever sees (and the rules only allow) employee logins, so the query must say so.
+  let query = state.db.collection("users");
+  if (state.role === "hr") query = query.where("role", "==", "employee");
+  return query.onSnapshot((snap) => {
     state.users = snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (a.email || a.name || "").localeCompare(b.email || b.name || ""));
     renderUsersTable();
     renderDevicesTable(); // a reader's Pending/Approved status comes from its users/{uid} doc
@@ -984,7 +1004,7 @@ function renderAll() {
   renderScanFeed();
   renderCompanyCalendar();
   renderCalendarSidePanel();
-  if (state.role === "super_admin") {
+  if (canManageLogins()) {
     renderUserEmployeeOptions();
     renderUsersTable();
   }
@@ -1281,8 +1301,9 @@ async function createStaffAccount({ email, password, role, name, employeeUid }) 
   }
   const secondaryApp = window.firebase.app("secondary");
   const secondaryAuth = secondaryApp.auth();
+  let cred = null;
   try {
-    const cred = await secondaryAuth.createUserWithEmailAndPassword(email, password);
+    cred = await secondaryAuth.createUserWithEmailAndPassword(email, password);
     const uid = cred.user.uid;
     await state.db.collection("users").doc(uid).set({
       email: email.trim().toLowerCase(),
@@ -1295,10 +1316,14 @@ async function createStaffAccount({ email, password, role, name, employeeUid }) 
     await secondaryAuth.signOut();
     return { ok: true };
   } catch (error) {
+    // If the sign-in account was created but the database refused the role record, remove that
+    // account again - otherwise the email stays "already in use" with no way to retry.
+    if (cred?.user) { try { await cred.user.delete(); } catch {} }
     try { await secondaryAuth.signOut(); } catch {}
     const code = error?.code || "";
     let message = error?.message || "Failed to create login.";
-    if (code.includes("email-already-in-use")) message = "An account with this email already exists.";
+    if (code.includes("permission-denied")) message = "You are not allowed to create this kind of login.";
+    else if (code.includes("email-already-in-use")) message = "An account with this email already exists.";
     else if (code.includes("weak-password")) message = "Password must be at least 6 characters.";
     else if (code.includes("invalid-email")) message = "Invalid email format.";
     return { ok: false, message };
@@ -1318,7 +1343,7 @@ async function handleUserSubmit(event) {
   const name = elements.userName.value.trim();
   const email = elements.userEmail.value.trim();
   const password = elements.userPassword.value;
-  const role = elements.userRole.value;
+  const role = state.role === "hr" ? "employee" : elements.userRole.value; // HR can only make employee logins
   const employeeUid = elements.userEmployeeLink.value;
 
   if (!name || !email || !password || !role) {

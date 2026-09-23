@@ -2,6 +2,7 @@
 // Each test states the INTENDED behaviour (from the header comment in firestore.rules,
 // setup.md, and how the dashboard / employee portal / firmware use the database).
 import { describe, test, before, beforeEach, after } from "node:test";
+import assert from "node:assert/strict";
 import { assertFails, assertSucceeds } from "@firebase/rules-unit-testing";
 import firebase from "firebase/compat/app";
 import "firebase/compat/firestore";
@@ -70,8 +71,91 @@ describe("users/{uid} — role directory", () => {
     await assertSucceeds(as("admin").doc(`users/${uids.hr}`).delete());
     await assertFails(as("admin").doc(`users/${uids.admin}`).delete());
   });
-  test("hr cannot delete users", async () => {
-    await assertFails(as("hr").doc(`users/${uids.emp}`).delete());
+  test("hr cannot delete admin / hr / device logins (only employee logins)", async () => {
+    await assertFails(as("hr").doc(`users/${uids.admin}`).delete());
+    await assertFails(as("hr").doc(`users/${uids.hr}`).delete());
+    await assertFails(as("hr").doc(`users/${uids.device}`).delete());
+  });
+});
+
+describe("users/{uid} - admin makes HR, HR makes employee logins", () => {
+  const employeeLogin = (over = {}) => ({
+    email: "new.employee@test.local", name: "New Employee", role: "employee", employeeUid: JOHN,
+    createdAt: "2026-09-21T09:00:00.000Z", createdBy: "hr@test.local", ...over,
+  });
+
+  test("super_admin can create an HR login (and any other role)", async () => {
+    for (const [i, role] of ["hr", "super_admin", "employee"].entries()) {
+      await assertSucceeds(as("admin").doc(`users/made-by-admin-${i}`).set({ email: `a${i}@x.y`, name: "N", role, employeeUid: role === "employee" ? JOHN : null }));
+    }
+  });
+
+  test("hr can create an employee login linked to an existing employee", async () => {
+    await assertSucceeds(as("hr").doc("users/emp-login-1").set(employeeLogin()));
+  });
+
+  test("hr can NOT create hr / super_admin / device logins", async () => {
+    for (const role of ["hr", "super_admin", "device"]) {
+      await assertFails(as("hr").doc(`users/evil-${role}`).set(employeeLogin({ role, employeeUid: null })));
+    }
+  });
+
+  test("hr can NOT smuggle extra fields into an employee login", async () => {
+    for (const extra of [{ isAdmin: true }, { permissions: ["all"] }, { approved: true }]) {
+      await assertFails(as("hr").doc("users/emp-login-x").set(employeeLogin(extra)));
+    }
+  });
+
+  test("an employee login must point at an EXISTING employee record", async () => {
+    await assertFails(as("hr").doc("users/emp-login-y").set(employeeLogin({ employeeUid: "NO_SUCH_CARD" })));
+    await assertFails(as("hr").doc("users/emp-login-y").set(employeeLogin({ employeeUid: null })));
+    await assertFails(as("hr").doc("users/emp-login-y").set(employeeLogin({ employeeUid: 12345 })));
+  });
+
+  test("hr can NOT overwrite or edit any existing login (create only)", async () => {
+    // re-creating over the admin / another hr / an employee, or changing a role, is an update
+    await assertFails(as("hr").doc(`users/${uids.admin}`).set(employeeLogin()));
+    await assertFails(as("hr").doc(`users/${uids.hr}`).set(employeeLogin()));
+    await assertFails(as("hr").doc(`users/${uids.emp}`).set(employeeLogin()));
+    await assertFails(as("hr").doc(`users/${uids.emp}`).update({ employeeUid: "E5F6G7H8" }));
+    await assertFails(as("hr").doc(`users/${uids.hr}`).update({ role: "super_admin" }));
+  });
+
+  test("hr sees only employee logins: a filtered query works, an unfiltered one is denied", async () => {
+    const snap = await assertSucceeds(as("hr").collection("users").where("role", "==", "employee").get());
+    assert.ok(snap.size >= 2, "employee logins are listed");
+    assert.ok(snap.docs.every((d) => d.data().role === "employee"), "only employee logins come back");
+    await assertFails(as("hr").collection("users").get());
+    await assertFails(as("hr").collection("users").where("role", "==", "hr").get());
+    await assertFails(as("hr").collection("users").where("role", "==", "super_admin").get());
+  });
+
+  test("hr can read an employee login but not an hr / admin login", async () => {
+    await assertSucceeds(as("hr").doc(`users/${uids.emp}`).get());
+    await assertFails(as("hr").doc(`users/${uids.admin}`).get());
+    await assertSucceeds(as("hr").doc(`users/${uids.hr}`).get()); // their own record
+    await assertFails(as("hr").doc(`users/${uids.device}`).get());
+  });
+
+  test("hr can revoke (delete) an employee login, and only that", async () => {
+    await assertSucceeds(as("hr").doc(`users/${uids.emp}`).delete());
+    await assertFails(as("hr").doc(`users/${uids.admin}`).delete());
+    await assertFails(as("hr").doc(`users/${uids.hr}`).delete());
+  });
+
+  test("employees, devices and role-less accounts still cannot create any login", async () => {
+    for (const k of ["emp", "device", "norole"]) {
+      await assertFails(as(k).doc(`users/from-${k}`).set(employeeLogin()));
+    }
+    await assertFails(anon().doc("users/from-anon").set(employeeLogin()));
+  });
+
+  test("an HR-created employee login really works: that employee can read their own record", async () => {
+    await assertSucceeds(as("hr").doc("users/brand-new-emp").set(employeeLogin({ employeeUid: JOHN })));
+    const asNew = env.authenticatedContext("brand-new-emp").firestore();
+    await assertSucceeds(asNew.doc(`employees/${JOHN}`).get());
+    await assertFails(asNew.doc("employees/E5F6G7H8").get());
+    await assertFails(asNew.doc("users/other").set(employeeLogin()));
   });
 });
 
