@@ -83,6 +83,18 @@ function normalizeUid(value) {
   return String(value || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
 
+// An employee whose card was removed keeps their data under a placeholder key. It contains "-", which a
+// real card UID never does (normalizeUid strips it), so no reader can ever match it.
+const NO_CARD_PREFIX = "NOCARD-";
+
+function hasCard(uid) {
+  return Boolean(uid) && !String(uid).startsWith(NO_CARD_PREFIX);
+}
+
+function cardLabel(uid) {
+  return hasCard(uid) ? uid : "No card";
+}
+
 function isLate(timeString) {
   const [hours, minutes] = timeString.split(":").map(Number);
   return hours * 60 + minutes > 9 * 60 + 15;
@@ -308,6 +320,10 @@ function cacheElements() {
     "cardToast", "cardToastText", "cardToastAssignBtn", "cardToastCloseBtn",
     "sidebar", "sidebarBackdrop", "openSidebarBtn", "closeSidebarBtn",
     "trendRate", "trendChart", "metricRateText", "metricRateBar", "bestEmployees", "dockMoreBtn",
+    "deleteEmpBackdrop", "deleteEmpModal", "deleteEmpTag", "deleteEmpTitle", "closeDeleteEmpBtn",
+    "removeCardOnlyBtn", "deleteEverythingBtn", "deleteEverythingText", "deleteEmpHint",
+    "assignCardBackdrop", "assignCardModal", "assignCardTitle", "closeAssignCardBtn",
+    "assignCardInput", "assignCardOptions", "assignCardHint", "saveAssignCardBtn",
   ].forEach((id) => {
     elements[id] = document.getElementById(id);
   });
@@ -766,7 +782,7 @@ function attendanceRow(record) {
     <td data-label="Date">${escapeHtml(record.dateKey || "-")}</td>
     <td data-label="Day">${escapeHtml(day)}</td>
     <td data-label="Name">${escapeHtml(getEmployeeName(record.uid))}</td>
-    <td data-label="UID">${escapeHtml(record.uid)}</td>
+    <td data-label="UID">${escapeHtml(cardLabel(record.uid))}</td>
     <td data-label="Shift">${shiftCell(shift)}</td>
     <td data-label="Check In">${record.checkIn ? escapeHtml(formatTimeAmPm(record.checkIn)) : "-"}</td>
     <td data-label="Check Out">${record.checkOut ? escapeHtml(formatTimeAmPm(record.checkOut)) : "-"}</td>
@@ -798,8 +814,14 @@ function employeeRow(employee) {
   const deleteBtn = canManageLogins()
     ? `<button class="mini-btn" data-delete-employee="${escapeHtml(employee.uid)}" type="button">Delete</button>`
     : "";
+  const assignBtn = !hasCard(employee.uid) && state.role === "super_admin"
+    ? `<button class="mini-btn" data-give-card="${escapeHtml(employee.uid)}" type="button">Assign Card</button>`
+    : "";
+  const uidCell = hasCard(employee.uid)
+    ? escapeHtml(employee.uid)
+    : '<span class="pill warning">No card</span>';
   return `<tr>
-    <td data-label="UID">${escapeHtml(employee.uid)}</td>
+    <td data-label="UID">${uidCell}</td>
     <td data-label="ID">${escapeHtml(employee.employeeId)}</td>
     <td data-label="Name"><strong>${escapeHtml(employee.name)}</strong></td>
     <td data-label="Branch">${escapeHtml(employee.branch || "-")}</td>
@@ -808,6 +830,7 @@ function employeeRow(employee) {
     <td data-label="Actions">
       <button class="mini-btn" data-view-employee="${escapeHtml(employee.uid)}" type="button">View</button>
       <button class="mini-btn" data-edit-employee="${escapeHtml(employee.uid)}" type="button">Edit</button>
+      ${assignBtn}
       ${deleteBtn}
     </td>
   </tr>`;
@@ -826,8 +849,11 @@ function renderEmployeeTable() {
   elements.employeeTableBody.querySelectorAll("[data-delete-employee]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const uid = btn.getAttribute("data-delete-employee");
-      if (uid && confirm(`Delete employee ${uid}?`)) await deleteEmployee(uid);
+      if (uid) openDeleteEmployeeModal(uid);
     });
+  });
+  elements.employeeTableBody.querySelectorAll("[data-give-card]").forEach((btn) => {
+    btn.addEventListener("click", () => openAssignCardModal(btn.getAttribute("data-give-card")));
   });
 }
 
@@ -868,7 +894,7 @@ function renderDrawer() {
 
   elements.drawerEmployeeName.textContent = employee.name;
   elements.drawerSummary.innerHTML = `
-    <div class="setting-card"><span>UID</span><strong>${escapeHtml(employee.uid)}</strong></div>
+    <div class="setting-card"><span>UID</span><strong>${escapeHtml(cardLabel(employee.uid))}</strong></div>
     <div class="setting-card"><span>Employee ID</span><strong>${escapeHtml(employee.employeeId)}</strong></div>
     <div class="setting-card"><span>Branch</span><strong>${escapeHtml(employee.branch || "-")}</strong></div>
     <div class="setting-card"><span>Department</span><strong>${escapeHtml(employee.department)}</strong></div>
@@ -1547,35 +1573,221 @@ async function saveEmployee(employee) {
   }
 }
 
+// Firestore batches hold at most 500 writes; long attendance histories need several.
+async function commitInChunks(ops) {
+  for (let i = 0; i < ops.length; i += 400) {
+    const batch = state.db.batch();
+    ops.slice(i, i + 400).forEach((op) => op(batch));
+    await batch.commit();
+  }
+}
+
+async function docsWhereUid(collection, uid) {
+  return (await state.db.collection(collection).where("uid", "==", uid).get()).docs;
+}
+
+// Employee Portal logins linked to this employee.
+async function linkedLoginDocs(uid) {
+  if (!canManageLogins()) return [];
+  return (await state.db.collection("users").where("employeeUid", "==", uid).get()).docs;
+}
+
+// Delete an employee.
+//  super_admin: everything - profile, attendance, remarks, shift changes (stored on the profile),
+//               linked Employee Portal logins and any waiting "unassigned card" entry.
+//  hr:          profile + linked logins; the attendance history stays (only super_admin may delete it).
+// Either way the card is then free: tap it at a reader and it shows up as an unassigned card.
 async function deleteEmployee(uid) {
   if (!canManageLogins()) return;
   if (!state.db) {
     state.employees = state.employees.filter((e) => e.uid !== uid);
-    state.attendance = state.attendance.filter((e) => e.uid !== uid);
+    if (state.role === "super_admin") state.attendance = state.attendance.filter((e) => e.uid !== uid);
     state.remarks = state.remarks.filter((e) => e.uid !== uid);
     renderAll();
     return;
   }
   try {
-    // Delete employee
-    await state.db.collection("employees").doc(uid).delete();
-
-    // Delete all attendance for this employee (Super Admin only: HR's delete keeps the history)
+    const ops = [];
     if (state.role === "super_admin") {
-      const attSnap = await state.db.collection("attendance").where("uid", "==", uid).get();
-      const attBatch = state.db.batch();
-      attSnap.forEach((doc) => attBatch.delete(doc.ref));
-      if (!attSnap.empty) await attBatch.commit();
+      (await docsWhereUid("attendance", uid)).forEach((d) => ops.push((b) => b.delete(d.ref)));
     }
-
-    // Delete all remarks for this employee
-    const remSnap = await state.db.collection("remarks").where("uid", "==", uid).get();
-    const remBatch = state.db.batch();
-    remSnap.forEach((doc) => remBatch.delete(doc.ref));
-    if (!remSnap.empty) await remBatch.commit();
+    (await docsWhereUid("remarks", uid)).forEach((d) => ops.push((b) => b.delete(d.ref)));
+    (await linkedLoginDocs(uid))
+      .filter((d) => d.data().role === "employee")
+      .forEach((d) => ops.push((b) => b.delete(d.ref)));
+    if (hasCard(uid)) ops.push((b) => b.delete(state.db.collection("unknownCards").doc(uid)));
+    ops.push((b) => b.delete(state.db.collection("employees").doc(uid)));
+    await commitInChunks(ops);
   } catch (error) {
     handleFirestoreError(error);
     throw error;
+  }
+}
+
+// Move an employee and everything that points at them from one key to another (super_admin only):
+//   card -> NOCARD-...   "Remove card only": the card becomes free, nothing is lost
+//   NOCARD-... -> card   "Assign card": give a card-less employee a (new) card
+// New copies are written first and the old ones deleted after, so an interruption never loses data.
+async function rekeyEmployee(oldUid, newUid) {
+  if (state.role !== "super_admin") throw new Error("Only a Super Admin can change an employee's card.");
+  const emp = state.employees.find((e) => e.uid === oldUid);
+  if (!emp) throw new Error("Employee not found.");
+  if (state.employees.some((e) => e.uid === newUid)) throw new Error(`Card ${newUid} already belongs to another employee.`);
+
+  if (!state.db) {
+    emp.uid = newUid;
+    state.attendance.forEach((r) => { if (r.uid === oldUid) r.uid = newUid; });
+    state.remarks.forEach((r) => { if (r.uid === oldUid) r.uid = newUid; });
+    renderAll();
+    return;
+  }
+
+  const db = state.db;
+  const attendance = await docsWhereUid("attendance", oldUid);
+  const remarks = await docsWhereUid("remarks", oldUid);
+  const logins = await linkedLoginDocs(oldUid);
+  const { uid: _old, ...profile } = emp;
+
+  const writes = [(b) => b.set(db.collection("employees").doc(newUid), { ...profile, uid: newUid })];
+  attendance.forEach((d) => {
+    const data = d.data();
+    const newId = `${data.dateKey || d.id.split("_")[0]}_${newUid}`;
+    writes.push((b) => b.set(db.collection("attendance").doc(newId), { ...data, uid: newUid }));
+  });
+  remarks.forEach((d) => writes.push((b) => b.update(d.ref, { uid: newUid })));
+  logins.forEach((d) => writes.push((b) => b.update(d.ref, { employeeUid: newUid })));
+  await commitInChunks(writes);
+
+  const deletes = attendance.map((d) => (b) => b.delete(d.ref));
+  deletes.push((b) => b.delete(db.collection("employees").doc(oldUid)));
+  if (hasCard(newUid)) deletes.push((b) => b.delete(db.collection("unknownCards").doc(newUid)));
+  await commitInChunks(deletes);
+}
+
+// Attendance / remarks still stored under a card that no employee owns (left by an HR delete).
+function orphanCountFor(uid) {
+  return state.attendance.filter((r) => r.uid === uid).length + state.remarks.filter((r) => r.uid === uid).length;
+}
+
+async function clearOrphanHistory(uid) {
+  if (!state.db) {
+    state.attendance = state.attendance.filter((r) => r.uid !== uid);
+    state.remarks = state.remarks.filter((r) => r.uid !== uid);
+    return;
+  }
+  const ops = [];
+  (await docsWhereUid("attendance", uid)).forEach((d) => ops.push((b) => b.delete(d.ref)));
+  (await docsWhereUid("remarks", uid)).forEach((d) => ops.push((b) => b.delete(d.ref)));
+  await commitInChunks(ops);
+}
+
+// ---- Delete / Remove card dialog ----
+function openDeleteEmployeeModal(uid) {
+  const emp = state.employees.find((e) => e.uid === uid);
+  if (!emp) return;
+  state.deleteEmployeeUid = uid;
+  const superAdmin = state.role === "super_admin";
+  elements.deleteEmpTag.textContent = `${emp.employeeId || ""} - ${cardLabel(emp.uid)}`;
+  elements.deleteEmpTitle.textContent = `Delete ${emp.name}?`;
+  elements.removeCardOnlyBtn.classList.toggle("hidden", !superAdmin || !hasCard(uid));
+  elements.deleteEverythingBtn.querySelector("strong").textContent = superAdmin ? "Delete everything" : "Delete employee";
+  elements.deleteEverythingText.textContent = superAdmin
+    ? "Deletes the employee, all attendance, remarks, shift changes and their Employee Portal login. Cannot be undone."
+    : "Deletes the employee and their Employee Portal login. The attendance history is kept; only a Super Admin can delete it.";
+  elements.deleteEmpHint.textContent = "";
+  setDeleteModalBusy(false);
+  elements.deleteEmpBackdrop.classList.remove("hidden");
+  elements.deleteEmpModal.classList.remove("hidden");
+}
+
+function closeDeleteEmployeeModal() {
+  state.deleteEmployeeUid = "";
+  elements.deleteEmpBackdrop.classList.add("hidden");
+  elements.deleteEmpModal.classList.add("hidden");
+}
+
+function setDeleteModalBusy(busy) {
+  elements.removeCardOnlyBtn.disabled = busy;
+  elements.deleteEverythingBtn.disabled = busy;
+}
+
+async function runDeleteAction(action) {
+  const uid = state.deleteEmployeeUid;
+  const emp = state.employees.find((e) => e.uid === uid);
+  if (!emp) return;
+  if (action === "all" && !confirm(`Delete ${emp.name} and ${state.role === "super_admin" ? "ALL of their data" : "their profile"}? This cannot be undone.`)) return;
+  setDeleteModalBusy(true);
+  elements.deleteEmpHint.textContent = action === "all" ? "Deleting..." : "Removing card...";
+  try {
+    if (action === "card") {
+      await rekeyEmployee(uid, `${NO_CARD_PREFIX}${Date.now().toString(36).toUpperCase()}`);
+      state.liveOutput = { status: "success", message: `Card ${uid} removed from ${emp.name}. It can now be assigned to someone else.` };
+    } else {
+      await deleteEmployee(uid);
+      state.liveOutput = { status: "success", message: `${emp.name} deleted. Card ${uid} is free.` };
+    }
+    if (state.selectedEmployeeUid === uid) closeEmployeeDrawer();
+    closeDeleteEmployeeModal();
+    alert(state.liveOutput.message);
+  } catch (error) {
+    elements.deleteEmpHint.textContent = error?.message || "Could not finish. Please try again.";
+    setDeleteModalBusy(false);
+  }
+}
+
+// ---- Assign card dialog (employee with no card) ----
+function openAssignCardModal(uid) {
+  const emp = state.employees.find((e) => e.uid === uid);
+  if (!emp || state.role !== "super_admin") return;
+  state.assignCardEmployeeUid = uid;
+  elements.assignCardTitle.textContent = `Assign a card to ${emp.name}`;
+  elements.assignCardInput.value = "";
+  const waiting = state.unknownCards.filter((c) => !state.employees.some((e) => e.uid === c.uid));
+  elements.assignCardOptions.innerHTML = waiting
+    .map((c) => `<option value="${escapeHtml(c.uid)}">${escapeHtml(c.readerName ? `Tapped at ${c.readerName}` : "Waiting card")}</option>`)
+    .join("");
+  elements.assignCardHint.textContent = waiting.length
+    ? `${waiting.length} tapped card(s) waiting - click the box to pick one, or type a UID.`
+    : "Tap the card at a reader (it appears here), or type its UID.";
+  elements.saveAssignCardBtn.disabled = false;
+  elements.assignCardBackdrop.classList.remove("hidden");
+  elements.assignCardModal.classList.remove("hidden");
+  elements.assignCardInput.focus();
+}
+
+function closeAssignCardModal() {
+  state.assignCardEmployeeUid = "";
+  elements.assignCardBackdrop.classList.add("hidden");
+  elements.assignCardModal.classList.add("hidden");
+}
+
+async function saveAssignCard() {
+  const oldUid = state.assignCardEmployeeUid;
+  const emp = state.employees.find((e) => e.uid === oldUid);
+  const card = normalizeUid(elements.assignCardInput.value);
+  if (!emp) return;
+  if (card.length < 4) {
+    elements.assignCardHint.textContent = "Enter the card UID (letters and numbers, at least 4).";
+    return;
+  }
+  const owner = state.employees.find((e) => e.uid === card);
+  if (owner) {
+    elements.assignCardHint.textContent = `Card ${card} already belongs to ${owner.name}.`;
+    return;
+  }
+  const leftovers = orphanCountFor(card);
+  if (leftovers && !confirm(`Card ${card} still has ${leftovers} old record(s) from a deleted employee. Delete them so ${emp.name} starts clean?`)) return;
+  elements.saveAssignCardBtn.disabled = true;
+  elements.assignCardHint.textContent = "Assigning...";
+  try {
+    if (leftovers) await clearOrphanHistory(card);
+    await rekeyEmployee(oldUid, card);
+    if (state.selectedEmployeeUid === oldUid) closeEmployeeDrawer();
+    closeAssignCardModal();
+    alert(`Card ${card} assigned to ${emp.name}.`);
+  } catch (error) {
+    elements.assignCardHint.textContent = error?.message || "Could not assign the card.";
+    elements.saveAssignCardBtn.disabled = false;
   }
 }
 
@@ -2055,6 +2267,16 @@ async function handleEmployeeSubmit(event) {
       alert(`Card ${employee.uid} is already assigned to ${cardOwner.name} (${cardOwner.employeeId}). Use a different card, or edit that employee.`);
       return;
     }
+    // A reused card may still carry history from an employee HR deleted. Don't hand it to the new person.
+    const leftovers = orphanCountFor(employee.uid);
+    if (leftovers) {
+      if (state.role !== "super_admin") {
+        alert(`Card ${employee.uid} still has ${leftovers} old record(s) from a deleted employee. Ask a Super Admin to assign this card (they can clear the old records), or use another card.`);
+        return;
+      }
+      if (!confirm(`Card ${employee.uid} still has ${leftovers} old record(s) from a deleted employee. Delete them so ${employee.name} starts clean?`)) return;
+      await clearOrphanHistory(employee.uid);
+    }
   }
   const idOwner = state.employees.find((e) => e.uid !== employee.uid && String(e.employeeId || "").toLowerCase() === employee.employeeId.toLowerCase());
   if (idOwner) {
@@ -2165,6 +2387,14 @@ function bindNavButtons() {
 function wireEvents() {
   elements.openSidebarBtn.addEventListener("click", openSidebar);
   elements.dockMoreBtn.addEventListener("click", openSidebar);
+  elements.closeDeleteEmpBtn.addEventListener("click", closeDeleteEmployeeModal);
+  elements.deleteEmpBackdrop.addEventListener("click", closeDeleteEmployeeModal);
+  elements.removeCardOnlyBtn.addEventListener("click", () => runDeleteAction("card"));
+  elements.deleteEverythingBtn.addEventListener("click", () => runDeleteAction("all"));
+  elements.closeAssignCardBtn.addEventListener("click", closeAssignCardModal);
+  elements.assignCardBackdrop.addEventListener("click", closeAssignCardModal);
+  elements.saveAssignCardBtn.addEventListener("click", saveAssignCard);
+  elements.assignCardInput.addEventListener("keydown", (e) => { if (e.key === "Enter") saveAssignCard(); });
   elements.closeSidebarBtn.addEventListener("click", closeSidebar);
   elements.sidebarBackdrop.addEventListener("click", closeSidebar);
   elements.loginForm.addEventListener("submit", handleLogin);

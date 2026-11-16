@@ -753,6 +753,52 @@
     <button id="cardToastCloseBtn" class="card-toast-close" type="button" aria-label="Dismiss">&times;</button>
   </div>
 
+  <!-- DELETE / REMOVE CARD MODAL -->
+  <div id="deleteEmpBackdrop" class="modal-backdrop hidden"></div>
+  <aside id="deleteEmpModal" class="modal-card hidden glass-card" role="dialog" aria-modal="true" aria-labelledby="deleteEmpTitle">
+    <div class="drawer-head">
+      <div>
+        <p class="panel-tag" id="deleteEmpTag">Employee</p>
+        <h2 id="deleteEmpTitle">Delete employee</h2>
+      </div>
+      <button id="closeDeleteEmpBtn" class="mini-btn" type="button">Close</button>
+    </div>
+    <div class="danger-options">
+      <button id="removeCardOnlyBtn" class="danger-option" type="button">
+        <strong>Remove card only</strong>
+        <span>Keeps the employee, attendance history, remarks and login. The card becomes free to give to someone else.</span>
+      </button>
+      <button id="deleteEverythingBtn" class="danger-option is-danger" type="button">
+        <strong>Delete everything</strong>
+        <span id="deleteEverythingText">Deletes the employee, all attendance, remarks, shift changes and their Employee Portal login. Cannot be undone.</span>
+      </button>
+    </div>
+    <p id="deleteEmpHint" class="support-note" style="margin-top:10px;"></p>
+  </aside>
+
+  <!-- ASSIGN CARD MODAL (employee with no card) -->
+  <div id="assignCardBackdrop" class="modal-backdrop hidden"></div>
+  <aside id="assignCardModal" class="modal-card hidden glass-card" role="dialog" aria-modal="true" aria-labelledby="assignCardTitle">
+    <div class="drawer-head">
+      <div>
+        <p class="panel-tag">Super Admin</p>
+        <h2 id="assignCardTitle">Assign a card</h2>
+      </div>
+      <button id="closeAssignCardBtn" class="mini-btn" type="button">Close</button>
+    </div>
+    <div class="form-grid" style="grid-template-columns:1fr;margin-top:14px;">
+      <label>
+        <span>Card UID</span>
+        <input id="assignCardInput" list="assignCardOptions" placeholder="Tap the card on a reader, then pick it here" autocomplete="off" />
+        <datalist id="assignCardOptions"></datalist>
+      </label>
+    </div>
+    <p id="assignCardHint" class="support-note" style="margin-top:6px;"></p>
+    <div class="modal-actions">
+      <button id="saveAssignCardBtn" class="primary-btn" type="button">Assign Card</button>
+    </div>
+  </aside>
+
   <!-- INSTALL HELP (shown when the browser has no one-click install, e.g. iPhone Safari) -->
   <div id="installHelp" class="install-help hidden" role="dialog" aria-modal="true" aria-labelledby="installHelpTitle">
     <div class="install-help-card glass-card">

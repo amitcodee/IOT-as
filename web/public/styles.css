@@ -2912,3 +2912,50 @@ tr:hover td {
 .shift-editor-grid label {
   position: relative;
 }
+
+/* Delete / Remove card dialog */
+.danger-options {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.danger-option {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  background: var(--card);
+  border: 1px solid rgba(22, 24, 29, 0.08);
+  box-shadow: var(--shadow-sm);
+  color: var(--text);
+  text-align: left;
+}
+
+.danger-option strong {
+  font-size: 0.95rem;
+}
+
+.danger-option span {
+  font-size: 0.8rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.danger-option:hover {
+  border-color: var(--ink);
+}
+
+.danger-option.is-danger {
+  border-color: rgba(220, 60, 66, 0.3);
+}
+
+.danger-option.is-danger strong {
+  color: var(--danger);
+}
+
+.danger-option.is-danger:hover {
+  background: var(--danger-bg);
+  border-color: var(--danger);
+}
