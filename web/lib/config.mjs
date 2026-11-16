@@ -30,12 +30,34 @@ function parseEnv(content) {
   return result;
 }
 
+const ENV_KEYS = [
+  "APP_NAME",
+  "PORT",
+  "FIREBASE_API_KEY",
+  "FIREBASE_AUTH_DOMAIN",
+  "FIREBASE_PROJECT_ID",
+  "FIREBASE_STORAGE_BUCKET",
+  "FIREBASE_MESSAGING_SENDER_ID",
+  "FIREBASE_APP_ID",
+  "FIREBASE_MEASUREMENT_ID",
+];
+
+// Values from .env, overridden by real environment variables (Docker / Coolify).
 export async function loadEnv() {
+  let fileEnv = {};
   try {
-    return parseEnv(await readFile(envPath, "utf8"));
+    fileEnv = parseEnv(await readFile(envPath, "utf8"));
   } catch {
-    return {};
+    fileEnv = {};
   }
+
+  const result = { ...fileEnv };
+  for (const key of ENV_KEYS) {
+    if (process.env[key]) {
+      result[key] = process.env[key];
+    }
+  }
+  return result;
 }
 
 export function getAppConfig(env) {
