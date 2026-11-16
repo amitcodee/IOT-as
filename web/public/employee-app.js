@@ -554,7 +554,7 @@ function renderAttendance() {
   const months = getMonthOptions(state.attendance);
   const currentMonth = state.filterMonth || "";
 
-  el.empMonthSelect.innerHTML = '<option value="">All Months</option>' +
+  el.empMonthSelect.innerHTML = '<option value="">All Time</option>' +
     months.map((m) => `<option value="${escapeHtml(m)}" ${m === currentMonth ? "selected" : ""}>${escapeHtml(getMonthLabel(m))}</option>`).join("");
 
   let filtered = state.attendance;
@@ -677,20 +677,33 @@ function wireEvents() {
   el.empScanBtn.addEventListener("click", handleScanBtnClick);
   el.empDeleteBtn.addEventListener("click", handleDeleteBtnClick);
 
+  // Bottom dock (phones): scroll to a section and highlight its pill.
+  document.querySelectorAll(".emp-dock .dock-link").forEach((link) => {
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      document.querySelector(link.getAttribute("href"))?.scrollIntoView({ behavior: "smooth", block: "start" });
+      document.querySelectorAll(".emp-dock .dock-link").forEach((l) => l.classList.toggle("is-active", l === link));
+    });
+  });
+
+  // Month and date range are alternatives: using one resets the other, so the box always shows what is filtered.
   el.empMonthSelect.addEventListener("change", () => {
     state.filterMonth = el.empMonthSelect.value;
+    state.filterFrom = "";
+    state.filterTo = "";
+    el.empFromDate.value = "";
+    el.empToDate.value = "";
     renderAttendance();
   });
 
-  el.empFromDate.addEventListener("change", () => {
+  const onEmpDates = () => {
     state.filterFrom = el.empFromDate.value;
-    renderAttendance();
-  });
-
-  el.empToDate.addEventListener("change", () => {
     state.filterTo = el.empToDate.value;
+    state.filterMonth = "";
     renderAttendance();
-  });
+  };
+  el.empFromDate.addEventListener("change", onEmpDates);
+  el.empToDate.addEventListener("change", onEmpDates);
 
   el.empCalPrevBtn.addEventListener("click", () => {
     state.calMonth = shiftMonth(state.calMonth || todayKey().slice(0, 7), -1);

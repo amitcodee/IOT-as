@@ -251,3 +251,69 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ---- Soft UI theme ---- */
+.emp-header.glass-card {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  padding: 10px 4px 2px;
+}
+
+.emp-header-left .topbar-logo {
+  display: none;
+}
+
+.emp-header-left h1 {
+  font-size: clamp(1.7rem, 3vw, 2.4rem);
+}
+
+.emp-today-card {
+  background: var(--ink);
+  border-color: transparent;
+  color: #fff;
+}
+
+.emp-today-card h2,
+.emp-today-card .support-note {
+  color: #fff;
+}
+
+.emp-today-card .panel-tag,
+.emp-today-card .support-note {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.emp-today-card .primary-btn {
+  background: #fff;
+  color: var(--ink);
+}
+
+.emp-today-card .secondary-btn {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+
+@media (max-width: 640px) {
+  .emp-header.glass-card {
+    padding: 6px 4px 0;
+  }
+  .emp-dashboard .table-wrap {
+    background: transparent;
+    box-shadow: none;
+  }
+  .emp-dashboard .table-wrap table tr {
+    background: var(--card);
+    border: 0;
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+  }
+}
+
+.emp-today-card .status-pill.accent {
+  background: var(--tone-mid);
+  color: var(--ink);
+}

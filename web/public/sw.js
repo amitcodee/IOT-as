@@ -1,10 +1,10 @@
 // Service worker: lets the dashboard / Employee Portal be installed as an app and open without a
 // connection. Network first, so a deploy shows up straight away; the cache is only the offline fallback.
 // Firebase traffic (other origins) is never touched.
-const CACHE = "techcadd-attendance-v1";
+const CACHE = "techcadd-attendance-v2";
 const SHELL = [
   "/index.html", "/employee.html", "/styles.css", "/employee-styles.css",
-  "/app.js", "/employee-app.js", "/shifts.js", "/pwa.js", "/logo.png",
+  "/app.js", "/employee-app.js", "/shifts.js", "/time12.js", "/pwa.js", "/logo.png",
   "/icons/icon-192.png", "/icons/icon-512.png",
 ];
 

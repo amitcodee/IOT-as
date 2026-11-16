@@ -307,6 +307,7 @@ function cacheElements() {
     "unassignedList", "unassignedCount", "unassignedNavBadge", "assignBanner",
     "cardToast", "cardToastText", "cardToastAssignBtn", "cardToastCloseBtn",
     "sidebar", "sidebarBackdrop", "openSidebarBtn", "closeSidebarBtn",
+    "trendRate", "trendChart", "metricRateText", "metricRateBar", "bestEmployees", "dockMoreBtn",
   ].forEach((id) => {
     elements[id] = document.getElementById(id);
   });
@@ -450,7 +451,12 @@ const VIEW_LABELS = {
 function setView(viewId) {
   state.view = viewId;
   document.querySelectorAll(".view").forEach((s) => s.classList.toggle("is-active", s.id === viewId));
-  document.querySelectorAll(".nav-link").forEach((b) => b.classList.toggle("is-active", b.dataset.view === viewId));
+  document.querySelectorAll(".nav-link, .dock-link").forEach((b) => b.classList.toggle("is-active", b.dataset.view === viewId));
+  // Views without their own dock button light up "More" (they live in the full menu).
+  if (elements.dockMoreBtn) {
+    const inDock = [...document.querySelectorAll(".dock-link[data-view]")].some((b) => b.dataset.view === viewId);
+    elements.dockMoreBtn.classList.toggle("is-active", !inDock);
+  }
   elements.topbarTitle.textContent = VIEW_LABELS[viewId] || "Dashboard";
   elements.sidebarTitle.textContent = VIEW_LABELS[viewId] || "Dashboard";
 }
@@ -639,6 +645,109 @@ function renderMetrics() {
   elements.metricPresent.textContent = todayRecs.filter((r) => r.checkIn && !r.checkOut).length;
   elements.metricCheckedOut.textContent = todayRecs.filter((r) => Boolean(r.checkOut)).length;
   elements.metricLate.textContent = todayRecs.filter((r) => r.checkIn && shiftTiming(r, getShiftFor(r.uid, r.dateKey)).lateMins > 0).length;
+
+  const total = state.employees.length;
+  const inToday = todayRecs.filter((r) => r.checkIn && state.employees.some((e) => e.uid === r.uid)).length;
+  const pct = total ? Math.round((inToday / total) * 100) : 0;
+  if (elements.metricRateText) elements.metricRateText.textContent = `${inToday} / ${total}`;
+  if (elements.metricRateBar) elements.metricRateBar.style.width = `${Math.min(pct, 100)}%`;
+  renderTrendChart();
+  renderBestEmployees();
+}
+
+// ---- AVATARS (initials on a soft colour picked from the name) ----
+const AVATAR_TONES = ["#F6C9A8", "#BFE3C0", "#C9D6F6", "#F3D27A", "#E7C3EE", "#A9DDE0", "#F4B9B9"];
+
+function initials(name) {
+  const parts = String(name || "?").trim().split(/\s+/).filter(Boolean);
+  return ((parts[0]?.[0] || "?") + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase();
+}
+
+function avatarHtml(name, extraClass = "") {
+  const s = String(name || "");
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  const tone = AVATAR_TONES[h % AVATAR_TONES.length];
+  return `<span class="avatar ${extraClass}" style="background:${tone}" title="${escapeHtml(s)}">${escapeHtml(initials(s))}</span>`;
+}
+
+// ---- DASHBOARD: attendance trend + best employees ----
+function lastNDays(n) {
+  const now = new Date();
+  const keys = [];
+  for (let i = n - 1; i >= 0; i--) {
+    keys.push(todayKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - i)));
+  }
+  return keys;
+}
+
+function renderTrendChart() {
+  if (!elements.trendChart) return;
+  const days = lastNDays(14);
+  const today = todayKey();
+  const total = state.employees.length;
+  const uids = new Set(state.employees.map((e) => e.uid));
+  const counts = days.map((k) => new Set(state.attendance.filter((r) => r.dateKey === k && r.checkIn && uids.has(r.uid)).map((r) => r.uid)).size);
+  const max = Math.max(total, ...counts, 1);
+  // Average over days someone worked (skips weekends / holidays with no check-ins).
+  const worked = counts.filter((c) => c > 0);
+  const avg = total && worked.length ? Math.round((worked.reduce((a, b) => a + b, 0) / worked.length / total) * 100) : 0;
+  elements.trendRate.textContent = `${avg}%`;
+  elements.trendRate.title = "Average share of employees checked in on working days";
+  elements.trendChart.innerHTML = `
+    <div class="trend-bars">
+      ${days.map((k, i) => {
+        const pct = total ? Math.round((counts[i] / total) * 100) : 0;
+        const h = counts[i] ? Math.max((counts[i] / max) * 100, 6) : 2;
+        const tone = !counts[i] ? "none" : pct >= 80 ? "high" : pct >= 50 ? "mid" : "low";
+        const label = (days.length - 1 - i) % 2 === 0 ? getWeekdayShort(k).slice(0, 2) : "";
+        return `<div class="trend-col${k === today ? " is-today" : ""}" title="${escapeHtml(formatDateLabel(k))}: ${counts[i]} of ${total} checked in (${pct}%)">
+          <div class="trend-bar tone-${tone}" style="height:${h}%"></div>
+          <span>${label}</span>
+        </div>`;
+      }).join("")}
+    </div>
+    <div class="trend-legend">
+      <span><i class="tone-low"></i>&lt;50%</span>
+      <span><i class="tone-mid"></i>50-79%</span>
+      <span><i class="tone-high"></i>80%+</span>
+    </div>`;
+}
+
+function renderBestEmployees() {
+  if (!elements.bestEmployees) return;
+  const ym = todayKey().slice(0, 7);
+  const ranked = state.employees.map((emp) => {
+    const recs = state.attendance.filter((r) => r.uid === emp.uid && r.dateKey.startsWith(ym) && r.checkIn);
+    const onTime = recs.filter((r) => shiftTiming(r, getShiftFor(r.uid, r.dateKey)).lateMins <= 0).length;
+    const mins = recs.reduce((sum, r) => sum + (r.checkOut ? calcMinutes(r.checkIn, r.checkOut) || 0 : 0), 0);
+    return { emp, days: recs.length, onTime, mins };
+  }).filter((x) => x.days > 0)
+    .sort((a, b) => b.onTime - a.onTime || b.days - a.days || b.mins - a.mins || String(a.emp.name).localeCompare(String(b.emp.name)));
+
+  if (!ranked.length) {
+    elements.bestEmployees.innerHTML = '<div class="empty-state">No check-ins yet this month.</div>';
+    return;
+  }
+  const podium = [ranked[1], ranked[0], ranked[2]].filter(Boolean).map((x) => {
+    const rank = ranked.indexOf(x) + 1;
+    return `<button class="podium-item rank-${rank}" type="button" data-open-employee="${escapeHtml(x.emp.uid)}">
+      <span class="podium-avatar">${avatarHtml(x.emp.name, rank === 1 ? "avatar-xl" : "avatar-lg")}<span class="rank-badge">${rank}</span></span>
+      <strong>${escapeHtml(truncateText(x.emp.name, 16))}</strong>
+      <span class="podium-score">${x.onTime}/${x.days} on time</span>
+    </button>`;
+  }).join("");
+  const list = ranked.slice(3, 8).map((x, i) => `
+    <button class="best-row" type="button" data-open-employee="${escapeHtml(x.emp.uid)}">
+      <span class="best-rank">${i + 4}</span>
+      ${avatarHtml(x.emp.name)}
+      <span class="best-name"><strong>${escapeHtml(x.emp.name)}</strong><span>${escapeHtml(x.emp.role || x.emp.department || "")}</span></span>
+      <span class="best-score">${x.onTime}<small>/${x.days} on time</small></span>
+    </button>`).join("");
+  elements.bestEmployees.innerHTML = `<div class="podium">${podium}</div>${list ? `<div class="best-list">${list}</div>` : ""}`;
+  elements.bestEmployees.querySelectorAll("[data-open-employee]").forEach((b) => {
+    b.addEventListener("click", () => openEmployeeDrawer(b.getAttribute("data-open-employee")));
+  });
 }
 
 function editTimeButton(record) {
@@ -794,8 +903,9 @@ function renderDrawer() {
 
   // Month select
   const months = getMonthOptions(empRecords);
-  const currentMonth = state.drawerMonth || months[0] || "";
-  elements.drawerMonthSelect.innerHTML = '<option value="">All Months</option>' + months.map((m) => `<option value="${escapeHtml(m)}" ${m === currentMonth ? "selected" : ""}>${escapeHtml(getMonthLabel(m))}</option>`).join("");
+  // Nothing picked = all time; never pre-select a month the filter is not actually using.
+  const currentMonth = state.drawerMonth || "";
+  elements.drawerMonthSelect.innerHTML = '<option value="">All Time</option>' + months.map((m) => `<option value="${escapeHtml(m)}" ${m === currentMonth ? "selected" : ""}>${escapeHtml(getMonthLabel(m))}</option>`).join("");
 
   // Filter records
   let filtered = empRecords;
@@ -807,9 +917,7 @@ function renderDrawer() {
   }
 
   // Month summary
-  const summaryRecords = state.drawerMonth
-    ? empRecords.filter((r) => r.dateKey && r.dateKey.startsWith(state.drawerMonth))
-    : empRecords;
+  const summaryRecords = filtered; // same month / date range as the table below
 
   const totalDays = summaryRecords.length;
   const checkedOutDays = summaryRecords.filter((r) => r.checkIn && r.checkOut).length;
@@ -980,10 +1088,10 @@ function renderCompanyCalendar() {
     html += `<div class="${cellClasses.join(" ")}" data-cal-date="${dateKey}" title="${escapeHtml(tooltipParts.join(" — "))}">
       <span class="cal-day-num">${day}</span>
       ${lateCount ? `<span class="cal-late-badge">${lateCount} late</span>` : ""}
-      <div class="cal-name-list">
-        ${shown.map((n) => `<span class="cal-name-chip">${escapeHtml(truncateText(n, 10))}</span>`).join("")}
-        ${extra > 0 ? `<span class="cal-name-chip cal-name-more">+${extra}</span>` : ""}
-      </div>
+      ${names.length ? `<div class="cal-avatar-stack">
+        ${shown.map((n) => avatarHtml(n, "avatar-sm")).join("")}
+        ${extra > 0 ? `<span class="avatar avatar-sm avatar-more">+${extra}</span>` : ""}
+      </div>` : ""}
       ${remarkLines.length ? `<div class="cal-name-list">
         ${shownRemarks.map((line) => `<span class="cal-remark-badge">${escapeHtml(truncateText(line, 16))}</span>`).join("")}
         ${extraRemarks > 0 ? `<span class="cal-remark-badge cal-name-more">+${extraRemarks}</span>` : ""}
@@ -2056,6 +2164,7 @@ function bindNavButtons() {
 
 function wireEvents() {
   elements.openSidebarBtn.addEventListener("click", openSidebar);
+  elements.dockMoreBtn.addEventListener("click", openSidebar);
   elements.closeSidebarBtn.addEventListener("click", closeSidebar);
   elements.sidebarBackdrop.addEventListener("click", closeSidebar);
   elements.loginForm.addEventListener("submit", handleLogin);
@@ -2185,9 +2294,23 @@ function wireEvents() {
   // Drawer events
   elements.drawerBackdrop.addEventListener("click", closeEmployeeDrawer);
   elements.closeDrawerBtn.addEventListener("click", closeEmployeeDrawer);
-  elements.drawerFromInput.addEventListener("change", () => { state.drawerFrom = elements.drawerFromInput.value; renderDrawer(); });
-  elements.drawerToInput.addEventListener("change", () => { state.drawerTo = elements.drawerToInput.value; renderDrawer(); });
-  elements.drawerMonthSelect.addEventListener("change", () => { state.drawerMonth = elements.drawerMonthSelect.value; renderDrawer(); });
+  // Month and date range are alternatives: using one resets the other, so the box always shows what is filtered.
+  const onDrawerDates = () => {
+    state.drawerFrom = elements.drawerFromInput.value;
+    state.drawerTo = elements.drawerToInput.value;
+    state.drawerMonth = "";
+    renderDrawer();
+  };
+  elements.drawerFromInput.addEventListener("change", onDrawerDates);
+  elements.drawerToInput.addEventListener("change", onDrawerDates);
+  elements.drawerMonthSelect.addEventListener("change", () => {
+    state.drawerMonth = elements.drawerMonthSelect.value;
+    state.drawerFrom = "";
+    state.drawerTo = "";
+    elements.drawerFromInput.value = "";
+    elements.drawerToInput.value = "";
+    renderDrawer();
+  });
   elements.drawerCalPrevBtn.addEventListener("click", () => {
     const employee = state.employees.find((e) => e.uid === state.selectedEmployeeUid);
     if (!employee) return;

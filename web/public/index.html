@@ -6,10 +6,10 @@
   <title>TechCADD - Attendance System</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
   <link rel="manifest" href="manifest.webmanifest" />
-  <meta name="theme-color" content="#1B1464" />
+  <meta name="theme-color" content="#16181D" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-title" content="TechCADD Admin" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -128,7 +128,7 @@
           </button>
           <img src="logo.png" alt="TechCADD" class="topbar-logo" />
           <div>
-            <p class="eyebrow">Attendance Management</p>
+            <p class="eyebrow brand-name">TechCADD</p>
             <h1 id="topbarTitle">Dashboard</h1>
           </div>
         </div>
@@ -156,6 +156,37 @@
           <article class="metric-card glass-card">
             <span>Late Today</span>
             <strong id="metricLate">0</strong>
+          </article>
+        </div>
+
+        <div class="dash-grid">
+          <article class="panel glass-card trend-panel">
+            <div class="panel-head">
+              <div>
+                <p class="panel-tag">Last 14 Days</p>
+                <h2>Attendance Over Time</h2>
+              </div>
+              <strong id="trendRate" class="trend-rate">0%</strong>
+            </div>
+            <div class="rate-card">
+              <div class="rate-card-head">
+                <span>Checked in today</span>
+                <strong id="metricRateText">0 / 0</strong>
+              </div>
+              <div class="rate-track"><div id="metricRateBar" class="rate-fill" style="width:0%"></div></div>
+            </div>
+            <div id="trendChart" class="trend-chart" role="img" aria-label="Employees checked in per day, last 14 days"></div>
+          </article>
+
+          <article class="panel glass-card best-panel">
+            <div class="panel-head">
+              <div>
+                <p class="panel-tag">This Month</p>
+                <h2>Best Employees</h2>
+              </div>
+              <span class="status-pill">Most on-time days</span>
+            </div>
+            <div id="bestEmployees" class="best-employees"></div>
           </article>
         </div>
 
@@ -588,6 +619,30 @@
       </section>
 
     </main>
+
+    <!-- MOBILE BOTTOM DOCK -->
+    <nav class="bottom-dock" aria-label="Quick navigation">
+      <button class="dock-link is-active" data-view="dashboardView" data-route="dashboard" type="button" aria-label="Dashboard">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg>
+        <span>Home</span>
+      </button>
+      <button class="dock-link" data-view="attendanceTodayView" data-route="attendance/today" type="button" aria-label="Attendance Today">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <span>Today</span>
+      </button>
+      <button class="dock-link" data-view="managerView" data-route="employees/manager" type="button" aria-label="Team">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        <span>Team</span>
+      </button>
+      <button class="dock-link" data-view="calendarView" data-route="calendar" type="button" aria-label="Calendar">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        <span>Calendar</span>
+      </button>
+      <button id="dockMoreBtn" class="dock-link" type="button" aria-label="More">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>
+        <span>More</span>
+      </button>
+    </nav>
   </div>
 
   <!-- EMPLOYEE DRAWER -->
@@ -712,6 +767,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
   <script src="shifts.js"></script>
+  <script src="time12.js"></script>
   <script src="app.js"></script>
   <script src="pwa.js"></script>
 </body>
