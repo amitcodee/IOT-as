@@ -30,6 +30,7 @@ const state = {
   calendarMonth: "",
   calendarPageMonth: "",
   calendarSelectedDate: "",
+  shiftEditorDate: "",
   view: "dashboardView",
   serialStatus: "Disconnected",
   syncStatus: "Local demo",
@@ -116,6 +117,108 @@ function calcStatus(record) {
   if (record.checkIn && !record.checkOut) return "Present";
   if (record.checkIn && record.checkOut) return "Checked Out";
   return "-";
+}
+
+// ---- SHIFTS ----
+// Each employee has a default shift (employees/{uid}.shiftStart / shiftEnd, "HH:MM"). A single day can
+// be overridden from the Calendar: employees/{uid}.shiftOverrides["YYYY-MM-DD"] = { start, end }.
+// Kept on the employee document so the existing rules (staff write, employee reads own) already apply.
+const DEFAULT_SHIFT = { start: "09:00", end: "18:00" };
+const SHIFT_PRESETS = [
+  { start: "09:00", end: "18:00" },
+  { start: "10:00", end: "19:00" },
+  { start: "11:00", end: "20:00" },
+];
+
+function validShiftTime(value) {
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(String(value || ""));
+}
+
+function toMinutes(timeString) {
+  if (!timeString) return null;
+  const [h, m] = String(timeString).split(":").map(Number);
+  return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : null;
+}
+
+function getEmployeeShift(employee) {
+  if (employee && validShiftTime(employee.shiftStart) && validShiftTime(employee.shiftEnd)) {
+    return { start: employee.shiftStart, end: employee.shiftEnd };
+  }
+  return { ...DEFAULT_SHIFT };
+}
+
+function getShiftFor(uid, dateKey) {
+  const employee = state.employees.find((e) => e.uid === uid);
+  const override = employee?.shiftOverrides?.[dateKey];
+  if (override && validShiftTime(override.start) && validShiftTime(override.end)) {
+    return { start: override.start, end: override.end, custom: true };
+  }
+  return { ...getEmployeeShift(employee), custom: false };
+}
+
+function formatShift(shift) {
+  return `${formatTimeAmPm(shift.start)} - ${formatTimeAmPm(shift.end)}`;
+}
+
+function formatDuration(mins) {
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (h && m) return `${h}h ${m}m`;
+  if (h) return `${h}h`;
+  return `${m} min`;
+}
+
+// Compare a record's check-in / check-out with the shift for that day, to the minute.
+function shiftTiming(record, shift) {
+  const result = { lateMins: 0, earlyArrivalMins: 0, earlyLeaveMins: 0, overtimeMins: 0, hasIn: false, hasOut: false };
+  const startM = toMinutes(shift.start);
+  let endM = toMinutes(shift.end);
+  if (startM === null || endM === null) return result;
+  if (endM <= startM) endM += 24 * 60; // overnight shift
+
+  const inM = toMinutes(record?.checkIn);
+  if (inM !== null) {
+    result.hasIn = true;
+    if (inM > startM) result.lateMins = inM - startM;
+    else result.earlyArrivalMins = startM - inM;
+  }
+  let outM = toMinutes(record?.checkOut);
+  if (outM !== null) {
+    result.hasOut = true;
+    if (outM < startM && endM > 24 * 60) outM += 24 * 60;
+    if (outM < endM) result.earlyLeaveMins = endM - outM;
+    else result.overtimeMins = outM - endM;
+  }
+  return result;
+}
+
+function inRemark(timing) {
+  if (!timing.hasIn) return "";
+  if (timing.lateMins > 0) return `${formatDuration(timing.lateMins)} late`;
+  return "On time";
+}
+
+function outRemark(timing) {
+  if (!timing.hasOut) return "";
+  if (timing.earlyLeaveMins > 0) return `Left ${formatDuration(timing.earlyLeaveMins)} early`;
+  if (timing.overtimeMins > 0) return `${formatDuration(timing.overtimeMins)} overtime`;
+  return "Full shift";
+}
+
+function timingCell(record, shift) {
+  const timing = shiftTiming(record, shift);
+  const parts = [];
+  if (timing.hasIn) {
+    parts.push(`<span class="pill ${timing.lateMins > 0 ? "error" : "done"}">${escapeHtml(inRemark(timing))}</span>`);
+  }
+  if (timing.hasOut) {
+    parts.push(`<span class="pill ${timing.earlyLeaveMins > 0 ? "error" : timing.overtimeMins > 0 ? "info" : "done"}">${escapeHtml(outRemark(timing))}</span>`);
+  }
+  return parts.length ? `<div class="timing-pills">${parts.join("")}</div>` : "-";
+}
+
+function shiftCell(shift) {
+  return `${escapeHtml(formatShift(shift))}${shift.custom ? ' <span class="pill info">Custom</span>' : ""}`;
 }
 
 function statusPillClass(status) {
@@ -282,6 +385,9 @@ function cacheElements() {
     "drawerCalendarGrid", "drawerCalendarLabel", "drawerCalPrevBtn", "drawerCalNextBtn",
     "calPrevBtn", "calNextBtn", "calLabel", "calGrid",
     "calSideDateTag", "calSideDateLabel", "calSideList",
+    "shiftEmployeeSelect", "shiftFromDate", "shiftToDate", "shiftPresetSelect", "shiftStartInput", "shiftEndInput",
+    "saveShiftBtn", "resetShiftBtn", "shiftHint", "downloadSheetBtn", "drawerDownloadBtn",
+    "employeeShiftPreset", "employeeShiftStart", "employeeShiftEnd",
     "sidebar", "sidebarBackdrop", "openSidebarBtn", "closeSidebarBtn",
   ].forEach((id) => {
     elements[id] = document.getElementById(id);
@@ -445,6 +551,7 @@ function router() {
     }
     renderCompanyCalendar();
     renderCalendarSidePanel();
+    renderShiftEditor();
     return;
   }
 
@@ -589,7 +696,7 @@ function renderMetrics() {
   elements.metricEmployees.textContent = state.employees.length;
   elements.metricPresent.textContent = todayRecs.filter((r) => r.checkIn && !r.checkOut).length;
   elements.metricCheckedOut.textContent = todayRecs.filter((r) => Boolean(r.checkOut)).length;
-  elements.metricLate.textContent = todayRecs.length;
+  elements.metricLate.textContent = todayRecs.filter((r) => r.checkIn && shiftTiming(r, getShiftFor(r.uid, r.dateKey)).lateMins > 0).length;
 }
 
 function editTimeButton(record) {
@@ -602,13 +709,16 @@ function attendanceRow(record) {
   const status = calcStatus(record);
   const pillClass = statusPillClass(status);
   const day = record.dateKey ? getWeekdayShort(record.dateKey) : "-";
+  const shift = getShiftFor(record.uid, record.dateKey);
   return `<tr>
     <td data-label="Date">${escapeHtml(record.dateKey || "-")}</td>
     <td data-label="Day">${escapeHtml(day)}</td>
     <td data-label="Name">${escapeHtml(getEmployeeName(record.uid))}</td>
     <td data-label="UID">${escapeHtml(record.uid)}</td>
+    <td data-label="Shift">${shiftCell(shift)}</td>
     <td data-label="Check In">${record.checkIn ? escapeHtml(formatTimeAmPm(record.checkIn)) : "-"}</td>
     <td data-label="Check Out">${record.checkOut ? escapeHtml(formatTimeAmPm(record.checkOut)) : "-"}</td>
+    <td data-label="Late / Early">${timingCell(record, shift)}</td>
     <td data-label="Hours">${hours}</td>
     <td data-label="Status"><span class="pill ${pillClass}">${status}</span></td>
     <td data-label="Location">${locationCell(record)}</td>
@@ -628,7 +738,7 @@ function wireEditTimeButtons(container) {
 function renderTodayAttendance() {
   const today = todayKey();
   const rows = state.attendance.filter((r) => r.dateKey === today).map(attendanceRow).join("");
-  elements.todayAttendanceBody.innerHTML = rows || '<tr><td colspan="10" class="empty-state">No attendance records for today.</td></tr>';
+  elements.todayAttendanceBody.innerHTML = rows || '<tr><td colspan="12" class="empty-state">No attendance records for today.</td></tr>';
   wireEditTimeButtons(elements.todayAttendanceBody);
 }
 
@@ -687,7 +797,7 @@ function renderAttendanceTable() {
     state.attendanceSearch,
     ["dateKey", "employeeName", "uid"],
   );
-  elements.attendanceTableBody.innerHTML = filtered.map(attendanceRow).join("") || '<tr><td colspan="10" class="empty-state">No attendance records match the filters.</td></tr>';
+  elements.attendanceTableBody.innerHTML = filtered.map(attendanceRow).join("") || '<tr><td colspan="12" class="empty-state">No attendance records match the filters.</td></tr>';
   wireEditTimeButtons(elements.attendanceTableBody);
 }
 
@@ -696,7 +806,7 @@ function renderDrawer() {
   if (!employee) {
     elements.drawerEmployeeName.textContent = "Select an employee";
     elements.drawerSummary.innerHTML = '<div class="empty-state">Choose an employee to view details.</div>';
-    elements.drawerAttendanceBody.innerHTML = '<tr><td colspan="7" class="empty-state">No employee selected.</td></tr>';
+    elements.drawerAttendanceBody.innerHTML = '<tr><td colspan="9" class="empty-state">No employee selected.</td></tr>';
     elements.drawerMonthSummary.innerHTML = "";
     elements.drawerRemarkList.innerHTML = "";
     elements.drawerCalendarGrid.innerHTML = "";
@@ -712,6 +822,7 @@ function renderDrawer() {
     <div class="setting-card"><span>Department</span><strong>${escapeHtml(employee.department)}</strong></div>
     <div class="setting-card"><span>Job Title</span><strong>${escapeHtml(employee.role)}</strong></div>
     <div class="setting-card"><span>Phone</span><strong>${escapeHtml(employee.phone || "-")}</strong></div>
+    <div class="setting-card"><span>Default Shift</span><strong>${escapeHtml(formatShift(getEmployeeShift(employee)))}</strong></div>
   `;
 
   renderDrawerCalendar(employee);
@@ -761,8 +872,15 @@ function renderDrawer() {
   const checkedOutDays = summaryRecords.filter((r) => r.checkIn && r.checkOut).length;
   const presentDays = summaryRecords.filter((r) => r.checkIn).length;
   let totalMins = 0;
+  let lateDays = 0;
+  let totalLateMins = 0;
   summaryRecords.forEach((r) => {
     if (r.checkIn && r.checkOut) totalMins += calcMinutes(r.checkIn, r.checkOut);
+    const late = shiftTiming(r, getShiftFor(r.uid, r.dateKey)).lateMins;
+    if (late > 0) {
+      lateDays += 1;
+      totalLateMins += late;
+    }
   });
   const avgMins = checkedOutDays > 0 ? Math.round(totalMins / checkedOutDays) : 0;
 
@@ -772,6 +890,8 @@ function renderDrawer() {
     <div class="month-stat"><span>Completed</span><strong>${checkedOutDays}</strong></div>
     <div class="month-stat"><span>Total Hours</span><strong>${Math.floor(totalMins / 60)}h ${totalMins % 60}m</strong></div>
     <div class="month-stat"><span>Avg / Day</span><strong>${Math.floor(avgMins / 60)}h ${avgMins % 60}m</strong></div>
+    <div class="month-stat"><span>Late Days</span><strong>${lateDays}</strong></div>
+    <div class="month-stat"><span>Total Late</span><strong>${totalLateMins ? formatDuration(totalLateMins) : "0 min"}</strong></div>
   `;
 
   // Table
@@ -779,10 +899,13 @@ function renderDrawer() {
     const hours = record.checkIn && record.checkOut ? calcHours(record.checkIn, record.checkOut) : "-";
     const status = calcStatus(record);
     const pillClass = statusPillClass(status);
+    const shift = getShiftFor(record.uid, record.dateKey);
     return `<tr>
       <td data-label="Date">${escapeHtml(record.dateKey)}</td>
-      <td data-label="Check In">${escapeHtml(record.checkIn || "-")}</td>
-      <td data-label="Check Out">${escapeHtml(record.checkOut || "-")}</td>
+      <td data-label="Shift">${shiftCell(shift)}</td>
+      <td data-label="Check In">${record.checkIn ? escapeHtml(formatTimeAmPm(record.checkIn)) : "-"}</td>
+      <td data-label="Check Out">${record.checkOut ? escapeHtml(formatTimeAmPm(record.checkOut)) : "-"}</td>
+      <td data-label="Late / Early">${timingCell(record, shift)}</td>
       <td data-label="Hours">${hours}</td>
       <td data-label="Status"><span class="pill ${pillClass}">${status}</span></td>
       <td data-label="Location">${locationCell(record)}</td>
@@ -790,7 +913,7 @@ function renderDrawer() {
     </tr>`;
   }).join("");
 
-  elements.drawerAttendanceBody.innerHTML = rows || '<tr><td colspan="7" class="empty-state">No attendance records found.</td></tr>';
+  elements.drawerAttendanceBody.innerHTML = rows || '<tr><td colspan="9" class="empty-state">No attendance records found.</td></tr>';
   wireEditTimeButtons(elements.drawerAttendanceBody);
 }
 
@@ -823,10 +946,12 @@ function renderDrawerCalendar(employee) {
 
     const checkInTime = record?.checkIn ? formatTimeAmPm(record.checkIn) : "";
     const checkOutTime = record?.checkOut ? formatTimeAmPm(record.checkOut) : "";
+    const shift = getShiftFor(employee.uid, dateKey);
+    const timing = shiftTiming(record, shift);
 
-    const tooltipParts = [];
-    if (checkInTime) tooltipParts.push(`Check-in: ${checkInTime}`);
-    if (checkOutTime) tooltipParts.push(`Check-out: ${checkOutTime}`);
+    const tooltipParts = [`Shift: ${formatShift(shift)}${shift.custom ? " (custom)" : ""}`];
+    if (checkInTime) tooltipParts.push(`Check-in: ${checkInTime} (${inRemark(timing)})`);
+    if (checkOutTime) tooltipParts.push(`Check-out: ${checkOutTime} (${outRemark(timing)})`);
     if (remark) tooltipParts.push(`Remark: ${remark.text}`);
 
     html += `<div class="${cellClasses.join(" ")}" data-cal-date="${dateKey}" title="${escapeHtml(tooltipParts.join(" | "))}">
@@ -834,7 +959,9 @@ function renderDrawerCalendar(employee) {
         <span class="cal-day-num">${day}</span>
         ${status ? `<span class="cal-status-dot ${pillClass}"></span>` : ""}
       </div>
+      ${shift.custom ? `<span class="cal-shift-tag">${escapeHtml(formatShift(shift))}</span>` : ""}
       ${checkInTime ? `<span class="cal-time cal-time-in">In ${checkInTime}</span>` : ""}
+      ${timing.lateMins > 0 ? `<span class="cal-late-badge">${escapeHtml(formatDuration(timing.lateMins))} late</span>` : ""}
       ${checkOutTime ? `<span class="cal-time cal-time-out">Out ${checkOutTime}</span>` : ""}
       ${remark ? `<span class="cal-remark-badge">${escapeHtml(truncateText(remark.text, 14))}</span>` : ""}
     </div>`;
@@ -884,6 +1011,7 @@ function renderCompanyCalendar() {
   for (let day = 1; day <= total; day++) {
     const dateKey = `${ym}-${String(day).padStart(2, "0")}`;
     const dayRecords = state.attendance.filter((r) => r.dateKey === dateKey && r.checkIn);
+    const lateCount = dayRecords.filter((r) => shiftTiming(r, getShiftFor(r.uid, dateKey)).lateMins > 0).length;
     const names = dayRecords.map((r) => getEmployeeName(r.uid));
     const shown = names.slice(0, MAX_NAMES);
     const extra = names.length - shown.length;
@@ -905,6 +1033,7 @@ function renderCompanyCalendar() {
 
     html += `<div class="${cellClasses.join(" ")}" data-cal-date="${dateKey}" title="${escapeHtml(tooltipParts.join(" — "))}">
       <span class="cal-day-num">${day}</span>
+      ${lateCount ? `<span class="cal-late-badge">${lateCount} late</span>` : ""}
       <div class="cal-name-list">
         ${shown.map((n) => `<span class="cal-name-chip">${escapeHtml(truncateText(n, 10))}</span>`).join("")}
         ${extra > 0 ? `<span class="cal-name-chip cal-name-more">+${extra}</span>` : ""}
@@ -936,33 +1065,36 @@ function renderCalendarSidePanel() {
     return;
   }
 
-  const records = state.attendance
-    .filter((r) => r.dateKey === dateKey && r.checkIn)
-    .sort((a, b) => (a.checkIn || "").localeCompare(b.checkIn || ""));
   const dayRemarks = state.remarks.filter((r) => r.date === dateKey);
+  const today = todayKey();
 
-  elements.calSideDateTag.textContent = "Attendance";
+  elements.calSideDateTag.textContent = "Attendance & Shifts";
   elements.calSideDateLabel.textContent = formatDateLabel(dateKey);
 
-  if (!records.length && !dayRemarks.length) {
-    elements.calSideList.innerHTML = '<div class="empty-state">No attendance or remarks on this date.</div>';
-    return;
-  }
-
-  const attendanceHtml = records.length
-    ? records.map((r) => `
+  // Every employee for this day: their shift, and how their in / out compares with it.
+  const sortedEmployees = [...state.employees].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  const attendanceHtml = sortedEmployees.length
+    ? sortedEmployees.map((emp) => {
+      const r = state.attendance.find((rec) => rec.dateKey === dateKey && rec.uid === emp.uid && rec.checkIn);
+      const shift = getShiftFor(emp.uid, dateKey);
+      let times;
+      if (r) {
+        times = `<span class="cal-time cal-time-in">In ${formatTimeAmPm(r.checkIn)}</span>
+          ${r.checkOut ? `<span class="cal-time cal-time-out">Out ${formatTimeAmPm(r.checkOut)}</span>` : ""}
+          ${timingCell(r, shift)}`;
+      } else {
+        times = `<span class="pill ${dateKey < today ? "error" : ""}">${dateKey < today ? "Absent" : dateKey === today ? "Not in yet" : "Scheduled"}</span>`;
+      }
+      return `
       <div class="cal-side-item">
         <div>
-          <strong>${escapeHtml(getEmployeeName(r.uid))}</strong>
-          <span class="cal-side-sub">${escapeHtml(getEmployeeId(r.uid))}</span>
+          <strong>${escapeHtml(emp.name)}</strong>
+          <span class="cal-side-sub">${escapeHtml(emp.employeeId || "")} &bull; ${escapeHtml(formatShift(shift))}${shift.custom ? " (custom)" : ""}</span>
         </div>
-        <div class="cal-side-times">
-          <span class="cal-time cal-time-in">In ${formatTimeAmPm(r.checkIn)}</span>
-          ${r.checkOut ? `<span class="cal-time cal-time-out">Out ${formatTimeAmPm(r.checkOut)}</span>` : ""}
-        </div>
-      </div>
-    `).join("")
-    : '<div class="empty-state" style="font-size:0.85rem;">No one checked in on this date.</div>';
+        <div class="cal-side-times">${times}</div>
+      </div>`;
+    }).join("")
+    : '<div class="empty-state" style="font-size:0.85rem;">No employees yet.</div>';
 
   const remarksHtml = dayRemarks.length
     ? `<div class="drawer-section-title" style="margin-top:16px;">Remarks</div>${dayRemarks.map((r) => `
@@ -976,6 +1108,184 @@ function renderCalendarSidePanel() {
     : "";
 
   elements.calSideList.innerHTML = attendanceHtml + remarksHtml;
+}
+
+// ---- SHIFT EDITOR (Calendar side panel) ----
+
+function renderShiftEditor() {
+  if (!elements.shiftEmployeeSelect) return;
+  const current = elements.shiftEmployeeSelect.value;
+  const sorted = [...state.employees].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  elements.shiftEmployeeSelect.innerHTML = sorted.length
+    ? sorted.map((e) => `<option value="${escapeHtml(e.uid)}">${escapeHtml(e.name)} (${escapeHtml(e.employeeId || e.uid)})</option>`).join("")
+    : '<option value="">No employees yet</option>';
+  if (current && sorted.some((e) => e.uid === current)) elements.shiftEmployeeSelect.value = current;
+
+  const dateKey = state.calendarSelectedDate || todayKey();
+  if (!elements.shiftFromDate.value || state.shiftEditorDate !== dateKey) {
+    elements.shiftFromDate.value = dateKey;
+    elements.shiftToDate.value = dateKey;
+    state.shiftEditorDate = dateKey;
+    syncShiftEditorTimes();
+  }
+}
+
+function setPresetFromTimes(selectEl, start, end) {
+  const key = `${start}-${end}`;
+  selectEl.value = Array.from(selectEl.options).some((o) => o.value === key) ? key : "custom";
+}
+
+// Show the shift that currently applies to the chosen employee on the "From" date.
+function syncShiftEditorTimes() {
+  const uid = elements.shiftEmployeeSelect.value;
+  if (!uid) return;
+  const shift = getShiftFor(uid, elements.shiftFromDate.value || todayKey());
+  elements.shiftStartInput.value = shift.start;
+  elements.shiftEndInput.value = shift.end;
+  setPresetFromTimes(elements.shiftPresetSelect, shift.start, shift.end);
+  elements.shiftHint.textContent = shift.custom ? "This day already has a custom shift." : "Currently the employee's default shift.";
+}
+
+function dateRangeKeys(from, to) {
+  const keys = [];
+  const [fy, fm, fd] = from.split("-").map(Number);
+  const [ty, tm, td] = to.split("-").map(Number);
+  const cur = new Date(fy, fm - 1, fd);
+  const end = new Date(ty, tm - 1, td);
+  while (cur <= end && keys.length < 400) {
+    keys.push(todayKey(cur));
+    cur.setDate(cur.getDate() + 1);
+  }
+  return keys;
+}
+
+async function saveShiftOverride(reset) {
+  const uid = elements.shiftEmployeeSelect.value;
+  const from = elements.shiftFromDate.value;
+  const to = elements.shiftToDate.value || from;
+  const start = elements.shiftStartInput.value;
+  const end = elements.shiftEndInput.value;
+  if (!uid || !from) {
+    elements.shiftHint.textContent = "Choose an employee and a date.";
+    return;
+  }
+  if (to < from) {
+    elements.shiftHint.textContent = "'To' must be on or after 'From'.";
+    return;
+  }
+  if (!reset && (!validShiftTime(start) || !validShiftTime(end) || start === end)) {
+    elements.shiftHint.textContent = "Enter a valid start and end time.";
+    return;
+  }
+  const employee = state.employees.find((e) => e.uid === uid);
+  if (!employee) return;
+
+  const days = dateRangeKeys(from, to);
+  const overrides = { ...(employee.shiftOverrides || {}) };
+  days.forEach((d) => {
+    if (reset) delete overrides[d];
+    else overrides[d] = { start, end };
+  });
+
+  try {
+    if (state.db) {
+      const FieldPath = window.firebase.firestore.FieldPath;
+      const FieldValue = window.firebase.firestore.FieldValue;
+      const args = [];
+      days.forEach((d) => {
+        args.push(new FieldPath("shiftOverrides", d), reset ? FieldValue.delete() : { start, end });
+      });
+      await state.db.collection("employees").doc(uid).update(...args);
+    }
+    employee.shiftOverrides = overrides;
+    const label = days.length === 1 ? formatDateLabel(from) : `${days.length} days (${from} to ${to})`;
+    elements.shiftHint.textContent = reset
+      ? `${employee.name}: back to default shift on ${label}.`
+      : `${employee.name}: ${formatShift({ start, end })} on ${label}.`;
+    renderAll();
+  } catch (error) {
+    handleFirestoreError(error);
+    elements.shiftHint.textContent = "Could not save the shift. Check your permissions and try again.";
+  }
+}
+
+// ---- SHEET EXPORT ----
+
+const SHEET_HEADER = [
+  "Date", "Day", "Employee ID", "Employee Name", "Branch", "Department",
+  "Shift", "Shift Type", "Check In", "Check Out", "Status",
+  "Late (min)", "Arrival", "Early Leave (min)", "Overtime (min)", "Departure", "Worked Hours", "Remarks",
+];
+
+// One row per employee per day in [from, to] (future days skipped), so absent days show up too.
+function buildSheetRows(uids, from, to) {
+  const today = todayKey();
+  const days = dateRangeKeys(from, to).filter((d) => d <= today);
+  const employees = uids
+    .map((uid) => state.employees.find((e) => e.uid === uid))
+    .filter(Boolean)
+    .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  const rows = [];
+  days.forEach((dateKey) => {
+    employees.forEach((emp) => {
+      const rec = state.attendance.find((r) => r.dateKey === dateKey && r.uid === emp.uid && r.checkIn);
+      const shift = getShiftFor(emp.uid, dateKey);
+      const timing = shiftTiming(rec, shift);
+      const remarks = state.remarks.filter((r) => r.uid === emp.uid && r.date === dateKey).map((r) => r.text).join("; ");
+      let status = "Absent";
+      if (rec) status = rec.checkOut ? "Checked Out" : "Present";
+      else if (dateKey === today) status = "Not in yet";
+      rows.push([
+        dateKey,
+        getWeekdayShort(dateKey),
+        emp.employeeId || "",
+        emp.name || "",
+        emp.branch || "",
+        emp.department || "",
+        formatShift(shift),
+        shift.custom ? "Custom" : "Default",
+        rec ? formatTimeAmPm(rec.checkIn) : "",
+        rec?.checkOut ? formatTimeAmPm(rec.checkOut) : "",
+        status,
+        timing.hasIn ? timing.lateMins : "",
+        inRemark(timing),
+        timing.hasOut ? timing.earlyLeaveMins : "",
+        timing.hasOut ? timing.overtimeMins : "",
+        outRemark(timing),
+        rec?.checkIn && rec?.checkOut ? calcHours(rec.checkIn, rec.checkOut) : "",
+        remarks,
+      ]);
+    });
+  });
+  return rows;
+}
+
+function csvCell(value) {
+  let s = String(value ?? "");
+  if (/^[=+\-@]/.test(s)) s = `'${s}`; // keep spreadsheet apps from treating text as a formula
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+function downloadSheet(uids, from, to, label) {
+  const today = todayKey();
+  const rangeFrom = from || `${today.slice(0, 7)}-01`;
+  const rangeTo = to || today;
+  const rows = buildSheetRows(uids, rangeFrom, rangeTo);
+  if (!rows.length) {
+    alert("Nothing to download for this selection.");
+    return;
+  }
+  const csv = [SHEET_HEADER, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n");
+  const blob = new Blob(["﻿", csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const safeLabel = String(label).replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-|-$/g, "") || "attendance";
+  a.href = url;
+  a.download = `attendance_${safeLabel}_${rangeFrom}_to_${rangeTo}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function renderScanFeed() {
@@ -1004,6 +1314,7 @@ function renderAll() {
   renderScanFeed();
   renderCompanyCalendar();
   renderCalendarSidePanel();
+  renderShiftEditor();
   if (canManageLogins()) {
     renderUserEmployeeOptions();
     renderUsersTable();
@@ -1016,6 +1327,9 @@ function clearEmployeeForm() {
   state.editingEmployeeUid = "";
   elements.employeeUid.readOnly = false;
   elements.employeeForm.reset();
+  elements.employeeShiftStart.value = DEFAULT_SHIFT.start;
+  elements.employeeShiftEnd.value = DEFAULT_SHIFT.end;
+  setPresetFromTimes(elements.employeeShiftPreset, DEFAULT_SHIFT.start, DEFAULT_SHIFT.end);
   elements.employeeUid.focus();
 }
 
@@ -1033,6 +1347,10 @@ function fillEmployeeForm(uid) {
   elements.employeeDepartment.value = emp.department || "";
   elements.employeeRole.value = emp.role || "";
   elements.employeePhone.value = emp.phone || "";
+  const shift = getEmployeeShift(emp);
+  elements.employeeShiftStart.value = shift.start;
+  elements.employeeShiftEnd.value = shift.end;
+  setPresetFromTimes(elements.employeeShiftPreset, shift.start, shift.end);
   location.hash = "#employees/add";
 }
 
@@ -1060,7 +1378,7 @@ function closeEmployeeDrawer() {
 async function saveEmployee(employee) {
   if (!state.db) {
     const idx = state.employees.findIndex((e) => e.uid === employee.uid);
-    if (idx >= 0) state.employees[idx] = employee;
+    if (idx >= 0) state.employees[idx] = { ...state.employees[idx], ...employee };
     else state.employees.unshift(employee);
     renderAll();
     return;
@@ -1556,7 +1874,13 @@ async function handleEmployeeSubmit(event) {
     department: elements.employeeDepartment.value.trim(),
     role: elements.employeeRole.value.trim(),
     phone: elements.employeePhone.value.trim(),
+    shiftStart: elements.employeeShiftStart.value,
+    shiftEnd: elements.employeeShiftEnd.value,
   };
+  if (!validShiftTime(employee.shiftStart) || !validShiftTime(employee.shiftEnd) || employee.shiftStart === employee.shiftEnd) {
+    alert("Please enter a valid shift start and end time.");
+    return;
+  }
   if (!employee.uid || !employee.employeeId || !employee.name || !employee.branch || !employee.department || !employee.role) {
     alert("Please complete all required fields.");
     return;
@@ -1744,6 +2068,48 @@ function wireEvents() {
   });
   elements.scanFromInputBtn.addEventListener("click", async () => { await processScan(elements.manualUidInput.value, "manual"); });
   elements.manualUidInput.addEventListener("keydown", async (e) => { if (e.key === "Enter") { e.preventDefault(); await processScan(elements.manualUidInput.value, "manual"); } });
+
+  // Shift presets fill the time inputs; editing a time switches the preset to "Custom".
+  const wirePreset = (selectEl, startEl, endEl) => {
+    selectEl.addEventListener("change", () => {
+      if (selectEl.value === "custom") return;
+      const [start, end] = selectEl.value.split("-");
+      startEl.value = start;
+      endEl.value = end;
+    });
+    [startEl, endEl].forEach((el) => el.addEventListener("change", () => setPresetFromTimes(selectEl, startEl.value, endEl.value)));
+  };
+  wirePreset(elements.employeeShiftPreset, elements.employeeShiftStart, elements.employeeShiftEnd);
+  wirePreset(elements.shiftPresetSelect, elements.shiftStartInput, elements.shiftEndInput);
+
+  // Shift editor (calendar side panel)
+  elements.shiftEmployeeSelect.addEventListener("change", syncShiftEditorTimes);
+  elements.shiftFromDate.addEventListener("change", () => {
+    if (!elements.shiftToDate.value || elements.shiftToDate.value < elements.shiftFromDate.value) {
+      elements.shiftToDate.value = elements.shiftFromDate.value;
+    }
+    syncShiftEditorTimes();
+  });
+  elements.saveShiftBtn.addEventListener("click", () => saveShiftOverride(false));
+  elements.resetShiftBtn.addEventListener("click", () => saveShiftOverride(true));
+
+  // Sheet downloads: the Attendance page uses its employee + date filters; the drawer is one employee.
+  elements.downloadSheetBtn.addEventListener("click", () => {
+    const uid = state.attendanceEmployeeUid;
+    const uids = uid ? [uid] : state.employees.map((e) => e.uid);
+    downloadSheet(uids, state.attendanceFrom, state.attendanceTo, uid ? getEmployeeName(uid) : "all-employees");
+  });
+  elements.drawerDownloadBtn.addEventListener("click", () => {
+    const uid = state.selectedEmployeeUid;
+    if (!uid) return;
+    let from = state.drawerFrom;
+    let to = state.drawerTo;
+    if (!from && !to && state.drawerMonth) {
+      from = `${state.drawerMonth}-01`;
+      to = `${state.drawerMonth}-${String(daysInMonth(state.drawerMonth)).padStart(2, "0")}`;
+    }
+    downloadSheet([uid], from, to, getEmployeeName(uid));
+  });
 
   // Company calendar
   elements.calPrevBtn.addEventListener("click", () => {

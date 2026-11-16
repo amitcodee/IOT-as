@@ -139,7 +139,7 @@
             <strong id="metricCheckedOut">0</strong>
           </article>
           <article class="metric-card glass-card">
-            <span>Records Today</span>
+            <span>Late Today</span>
             <strong id="metricLate">0</strong>
           </article>
         </div>
@@ -183,6 +183,23 @@
               <label>
                 <span>Phone</span>
                 <input id="employeePhone" placeholder="+91 9876543210" />
+              </label>
+              <label>
+                <span>Default Shift</span>
+                <select id="employeeShiftPreset">
+                  <option value="09:00-18:00">9:00 AM - 6:00 PM</option>
+                  <option value="10:00-19:00">10:00 AM - 7:00 PM</option>
+                  <option value="11:00-20:00">11:00 AM - 8:00 PM</option>
+                  <option value="custom">Custom...</option>
+                </select>
+              </label>
+              <label>
+                <span>Shift Start</span>
+                <input id="employeeShiftStart" type="time" value="09:00" required />
+              </label>
+              <label>
+                <span>Shift End</span>
+                <input id="employeeShiftEnd" type="time" value="18:00" required />
               </label>
               <div class="form-actions">
                 <button class="primary-btn" type="submit">Save Employee</button>
@@ -241,8 +258,10 @@
                   <th>Day</th>
                   <th>Name</th>
                   <th>UID</th>
+                  <th>Shift</th>
                   <th>Check In</th>
                   <th>Check Out</th>
+                  <th>Late / Early</th>
                   <th>Hours</th>
                   <th>Status</th>
                   <th>Location</th>
@@ -286,6 +305,7 @@
               <input id="attendanceToInput" class="date-input" type="date" />
               <input id="attendanceSearchInput" class="table-search" placeholder="Search name, UID or date" />
               <button id="clearAttendanceFiltersBtn" class="secondary-btn" type="button">Clear</button>
+              <button id="downloadSheetBtn" class="primary-btn" type="button">Download Sheet</button>
             </div>
           </div>
           <div class="table-wrap tall-table">
@@ -296,8 +316,10 @@
                   <th>Day</th>
                   <th>Name</th>
                   <th>UID</th>
+                  <th>Shift</th>
                   <th>Check In</th>
                   <th>Check Out</th>
+                  <th>Late / Early</th>
                   <th>Hours</th>
                   <th>Status</th>
                   <th>Location</th>
@@ -336,6 +358,47 @@
               </div>
             </div>
             <div id="calSideList" class="calendar-side-list"></div>
+
+            <div class="shift-editor">
+              <div class="drawer-section-title">Set Shift Timing</div>
+              <p class="shift-editor-hint">Choose an employee and the day(s); this overrides their default shift only for those dates.</p>
+              <div class="shift-editor-grid">
+                <label class="shift-editor-full">
+                  <span>Employee</span>
+                  <select id="shiftEmployeeSelect"></select>
+                </label>
+                <label>
+                  <span>From</span>
+                  <input id="shiftFromDate" type="date" />
+                </label>
+                <label>
+                  <span>To</span>
+                  <input id="shiftToDate" type="date" />
+                </label>
+                <label class="shift-editor-full">
+                  <span>Preset</span>
+                  <select id="shiftPresetSelect">
+                    <option value="09:00-18:00">9:00 AM - 6:00 PM</option>
+                    <option value="10:00-19:00">10:00 AM - 7:00 PM</option>
+                    <option value="11:00-20:00">11:00 AM - 8:00 PM</option>
+                    <option value="custom">Custom...</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Start</span>
+                  <input id="shiftStartInput" type="time" value="09:00" />
+                </label>
+                <label>
+                  <span>End</span>
+                  <input id="shiftEndInput" type="time" value="18:00" />
+                </label>
+              </div>
+              <div class="form-actions">
+                <button id="saveShiftBtn" class="primary-btn" type="button">Save Shift</button>
+                <button id="resetShiftBtn" class="secondary-btn" type="button">Use Default</button>
+              </div>
+              <p id="shiftHint" class="shift-editor-hint"></p>
+            </div>
           </aside>
         </div>
       </section>
@@ -548,6 +611,7 @@
       <input id="drawerFromInput" type="date" />
       <input id="drawerToInput" type="date" />
       <button id="drawerClearFiltersBtn" class="secondary-btn" type="button">Clear</button>
+      <button id="drawerDownloadBtn" class="primary-btn" type="button">Download Sheet</button>
     </div>
 
     <div id="drawerMonthSummary" class="month-summary"></div>
@@ -557,8 +621,10 @@
         <thead>
           <tr>
             <th>Date</th>
+            <th>Shift</th>
             <th>Check In</th>
             <th>Check Out</th>
+            <th>Late / Early</th>
             <th>Hours</th>
             <th>Status</th>
             <th>Location</th>

@@ -488,7 +488,7 @@ describe("timezone: dashboard date vs hardware/local date (India, UTC+5:30)", ()
 });
 
 describe("dashboard metrics", () => {
-  test("'Records Today' tile counts today's attendance records; Present/Checked Out split correctly", async () => {
+  test("'Late Today' tile counts check-ins after each employee's shift start; Present/Checked Out split correctly", async () => {
     const env = await getEnv();
     const probe = await newPage();
     await probe.goto(`${BASE}/`);
@@ -502,7 +502,7 @@ describe("dashboard metrics", () => {
     const page = await newPage();
     await adminLogin(page, ACCOUNTS.admin);
     await page.waitForFunction(() => document.querySelector("#metricPresent").textContent === "3");
-    assert.equal(await text(page, "#metricLate"), "3", "3 records today (tile is labelled 'Records Today')");
+    assert.equal(await text(page, "#metricLate"), "2", "09:45 and 10:30 are late for the default 9:00 shift; 09:00 is on time");
     assert.equal(await text(page, "#metricCheckedOut"), "0");
   });
 });
@@ -1071,6 +1071,41 @@ describe("pure helpers (evaluated in the real page)", () => {
     assert.equal(r.uid, "A1B2C3D4");
     assert.equal(r.esc, "&lt;img src=x onerror=&quot;a(&#39;b&#39;)&quot;&gt;&amp;");
     assert.deepEqual(r.month, ["Jan 2026", 28, 29, "2027-01", "2025-12"]);
+  });
+
+  test("shift timing: late / early leave / overtime against default, per-employee and per-day shifts", async () => {
+    const page = await newPage();
+    await page.goto(`${BASE}/`);
+    const r = await page.evaluate(() => {
+      state.employees = [
+        { uid: "A", name: "A" },
+        { uid: "B", name: "B", shiftStart: "10:00", shiftEnd: "19:00", shiftOverrides: { "2026-11-16": { start: "11:00", end: "20:00" } } },
+      ];
+      const t = (rec, shift) => {
+        const x = shiftTiming(rec, shift);
+        return [inRemark(x), outRemark(x)];
+      };
+      return {
+        defA: getShiftFor("A", "2026-11-16"),
+        defB: getShiftFor("B", "2026-11-15"),
+        dayB: getShiftFor("B", "2026-11-16"),
+        late10: t({ checkIn: "09:10:42", checkOut: "18:00:00" }, { start: "09:00", end: "18:00" }),
+        early: t({ checkIn: "08:55:00", checkOut: "17:30:00" }, { start: "09:00", end: "18:00" }),
+        overtime: t({ checkIn: "09:00:00", checkOut: "19:20:00" }, { start: "09:00", end: "18:00" }),
+        longLate: t({ checkIn: "11:05:00" }, { start: "09:00", end: "18:00" }),
+        night: t({ checkIn: "22:05:00", checkOut: "06:30:00" }, { start: "22:00", end: "06:00" }),
+        sheet: buildSheetRows(["B"], "2026-11-16", "2026-11-16").map((row) => [row[6], row[7]]),
+      };
+    });
+    assert.deepEqual(r.defA, { start: "09:00", end: "18:00", custom: false }, "no shift saved -> 9 to 6");
+    assert.deepEqual(r.defB, { start: "10:00", end: "19:00", custom: false });
+    assert.deepEqual(r.dayB, { start: "11:00", end: "20:00", custom: true }, "calendar override wins for that day");
+    assert.deepEqual(r.late10, ["10 min late", "Full shift"], "9:10 for a 9:00 shift is 10 min late; seconds ignored");
+    assert.deepEqual(r.early, ["On time", "Left 30 min early"]);
+    assert.deepEqual(r.overtime, ["On time", "1h 20m overtime"]);
+    assert.deepEqual(r.longLate, ["2h 5m late", ""]);
+    assert.deepEqual(r.night, ["5 min late", "30 min overtime"], "overnight shift wraps past midnight");
+    assert.deepEqual(r.sheet, [["11:00 AM - 8:00 PM", "Custom"]]);
   });
 });
 

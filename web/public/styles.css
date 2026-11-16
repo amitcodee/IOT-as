@@ -1552,3 +1552,64 @@ a.mini-btn {
     grid-template-columns: 1fr;
   }
 }
+
+/* Shift timing */
+.timing-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.shift-editor {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--panel-border);
+}
+
+.shift-editor-hint {
+  margin: 4px 0 10px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.shift-editor-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.shift-editor-grid label {
+  display: grid;
+  gap: 4px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.shift-editor-full {
+  grid-column: span 2;
+}
+
+.cal-late-badge {
+  display: inline-block;
+  margin-top: 2px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--warning);
+  background: var(--warning-bg);
+}
+
+.cal-shift-tag {
+  display: block;
+  font-size: 0.66rem;
+  color: var(--info);
+}
+
+.shift-editor-grid input,
+.shift-editor-grid select {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
