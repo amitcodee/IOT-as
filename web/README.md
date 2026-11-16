@@ -83,13 +83,14 @@ Any static host (Vercel, Netlify ...) also works: run `npm run build:config`, th
 | Role | Can do |
 |---|---|
 | `super_admin` | Everything: employees, attendance, **Users** (logins), **Devices** (approve readers), delete employees, **Edit Time** on any recorded time |
-| `hr` | Add / edit employees, assign cards, see attendance, make remarks, and **create / revoke employee logins** (Users panel, employee role only). Cannot delete employees, cannot rewrite a recorded time, cannot create HR / admin logins, no Devices |
+| `hr` | Everything except **Edit Time**: add / edit / delete employees, **assign unassigned cards live**, shifts, attendance, remarks, sheets, **Users** (HR and employee logins - never Super Admin), **Devices** (approve / revoke readers). Deleting an employee as HR keeps their attendance history |
 | `employee` | Employee Portal: own attendance only; verify location; undo their own not-yet-checked-out day |
 | `device` | A **card reader**. Not a person: it is approved from **Devices**, reads a single employee / attendance record by id and writes attendance. Cannot list anything |
 
 ## Using the dashboard
 
-- **Add Employee**: type the card UID (see the reader's Serial Monitor when you tap it), ID, name, branch, department, role. A card UID or Employee ID that is already in use is refused.
+- **Unassigned Cards** (Dashboard): tap a new card on any approved reader; it appears instantly with an **Assign** button (and a pop-up), which opens Add Employee with the card filled in.
+- **Add Employee**: type the card UID (or use Assign above), ID, name, branch, department, role. A card UID or Employee ID that is already in use is refused.
 - **Who makes whom:** the **Super Admin makes HR** (and other Super Admin) logins; **HR makes employee** logins. HR first adds the employee (card) under *Add Employee*, then opens **Users**, picks that employee under *Linked Employee*, and sets an email + temporary password. HR only ever sees and manages employee logins, never HR or admin ones. The database rules enforce this, not just the screens.
 - **Users**: create logins as above; **Revoke Access** cuts a login off (HR can revoke employee logins only).
 - **Devices** (Super Admin): a reader that is powered on and on WiFi appears as **Pending**. Check its name, click **Approve**. **Revoke** switches it off; **Remove** clears the entry (it reappears as Pending if the reader is still on).

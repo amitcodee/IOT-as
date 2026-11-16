@@ -15,7 +15,18 @@ const DATE = "2026-09-21";
 async function firmwareTap(token, uid, { dateKey = DATE, timeStr }) {
   // 404 = unknown card; 403 = this reader is not approved (or was revoked); anything else = lookup error.
   const emp = await fsFetch(token, "GET", `employees/${uid}`);
-  if (emp.code === 404) return { result: "UNKNOWN CARD", code: emp.code };
+  if (emp.code === 404) {
+    const body = JSON.stringify({
+      fields: {
+        uid: { stringValue: uid },
+        lastScanAt: { stringValue: `${dateKey}T${timeStr}` },
+        readerId: { stringValue: "reader" },
+        readerName: { stringValue: "Front Door" },
+      },
+    });
+    const w = await fsFetch(token, "PATCH", `unknownCards/${uid}`, { body });
+    return { result: "UNKNOWN CARD", code: emp.code, reported: w.code === 200 };
+  }
   if (emp.code === 403) return { result: "NOT APPROVED", code: emp.code };
   if (emp.code !== 200) return { result: "Employee lookup failed", code: emp.code };
 
@@ -193,9 +204,10 @@ describe("firmware full day: tap in -> tap out -> tap again", () => {
     });
   }
 
-  test("unknown card (404) is rejected without writing anything", async () => {
+  test("unknown card (404): no attendance written, card reported to the dashboard as unassigned", async () => {
     const r = await firmwareTap(tokens.device, "DEADBEEF", { timeStr: "09:00:00" });
     assert.equal(r.result, "UNKNOWN CARD");
+    assert.equal(r.reported, true, "approved reader may record the unknown card");
     assert.equal(await readAtt(), undefined);
   });
 });

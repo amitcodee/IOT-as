@@ -15,10 +15,12 @@ const state = {
   filterMonth: "",
   filterFrom: "",
   filterTo: "",
+  calMonth: "",
   actionPending: false,
 };
 
 let attendanceUnsub = null;
+let employeeUnsub = null;
 let todayTickHandle = null;
 
 const DELETE_WINDOW_MS = 5 * 60 * 1000;
@@ -110,6 +112,7 @@ function cacheElements() {
     "empMetricTotal", "empMetricPresent", "empMetricCompleted", "empMetricHours",
     "empMonthSelect", "empFromDate", "empToDate", "empClearFilters",
     "empMonthSummary", "empAttendanceBody",
+    "empCalPrevBtn", "empCalNextBtn", "empCalLabel", "empCalGrid", "empCalSummary",
   ].forEach((id) => {
     el[id] = document.getElementById(id);
   });
@@ -139,14 +142,31 @@ function findDemoEmployee(query) {
 }
 
 function stopAttendanceListener() {
+  if (employeeUnsub) {
+    employeeUnsub();
+    employeeUnsub = null;
+  }
   if (attendanceUnsub) {
     attendanceUnsub();
     attendanceUnsub = null;
   }
 }
 
+function listenEmployee(uid) {
+  if (employeeUnsub) employeeUnsub();
+  employeeUnsub = null;
+  if (!state.db) return;
+  employeeUnsub = state.db.collection("employees").doc(uid).onSnapshot((snap) => {
+    if (!snap.exists || !state.employee) return;
+    state.employee = { uid: snap.id, ...snap.data() };
+    renderProfile();
+    renderAttendance();
+  }, () => null);
+}
+
 function listenAttendance(uid) {
   stopAttendanceListener();
+  listenEmployee(uid);
 
   if (!state.db) {
     state.attendance = [];
@@ -182,6 +202,88 @@ function renderProfile() {
     <div class="setting-card"><span>Department</span><strong>${escapeHtml(emp.department)}</strong></div>
     <div class="setting-card"><span>Job Title</span><strong>${escapeHtml(emp.role)}</strong></div>
     <div class="setting-card"><span>Phone</span><strong>${escapeHtml(emp.phone || "-")}</strong></div>
+    <div class="setting-card"><span>My Shift</span><strong>${escapeHtml(formatShift(employeeDefaultShift(emp)))}</strong></div>
+  `;
+}
+
+// ---- MY CALENDAR ----
+
+function shiftMonth(ym, delta) {
+  const [y, m] = ym.split("-").map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+// Days before the first recorded attendance are not counted as absent (the employee had not started).
+function firstRecordDate() {
+  return state.attendance.reduce((min, r) => (r.dateKey && (!min || r.dateKey < min) ? r.dateKey : min), "");
+}
+
+function dayInfoFor(dateKey, today, startDate) {
+  const record = state.attendance.find((r) => r.dateKey === dateKey) || null;
+  const shift = shiftForEmployee(state.employee, dateKey);
+  const info = dayType(record, shift, dateKey, today);
+  if (!record && (!startDate || dateKey < startDate)) return { ...info, record, shift, type: "", tone: "" };
+  return { ...info, record, shift };
+}
+
+function renderCalendar() {
+  if (!el.empCalGrid || !state.employee) return;
+  const today = todayKey();
+  const ym = state.calMonth || today.slice(0, 7);
+  el.empCalLabel.textContent = getMonthLabel(ym);
+  const [y, m] = ym.split("-").map(Number);
+  const total = new Date(y, m, 0).getDate();
+  const startWeekday = new Date(y, m - 1, 1).getDay();
+  const startDate = firstRecordDate();
+
+  const counts = { full: 0, half: 0, absent: 0, late: 0, deduction: 0, worked: 0 };
+  let html = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => `<div class="calendar-weekday">${d}</div>`).join("");
+  for (let i = 0; i < startWeekday; i++) html += '<div class="calendar-cell is-empty"></div>';
+
+  for (let day = 1; day <= total; day++) {
+    const dateKey = `${ym}-${String(day).padStart(2, "0")}`;
+    const info = dayInfoFor(dateKey, today, startDate);
+    const r = info.record;
+    if (info.type === "Full Day") counts.full += 1;
+    if (info.type === "Half Day" || info.type === "Short Day") counts.half += 1;
+    if (info.type === "Absent") counts.absent += 1;
+    if (info.timing.lateMins > 0) counts.late += 1;
+    counts.deduction += info.deductionMins;
+    counts.worked += info.workedMins;
+
+    const classes = ["calendar-cell", "emp-cal-cell"];
+    if (info.tone) classes.push(`tone-${info.tone}`);
+    if (dateKey === today) classes.push("is-today");
+    const tip = [
+      info.type || "Upcoming",
+      `Shift ${formatShift(info.shift)}${info.shift.custom ? " (special)" : ""}`,
+      r?.checkIn ? `In ${formatTimeAmPm(r.checkIn)} (${inRemark(info.timing)})` : "",
+      r?.checkOut ? `Out ${formatTimeAmPm(r.checkOut)} (${outRemark(info.timing)})` : "",
+      info.deductionMins ? `Deduction ${formatDuration(info.deductionMins)}` : "",
+    ].filter(Boolean).join(" | ");
+
+    html += `<div class="${classes.join(" ")}" title="${escapeHtml(tip)}">
+      <div class="cal-cell-head">
+        <span class="cal-day-num">${day}</span>
+        ${info.type ? `<span class="cal-status-dot ${info.tone}"></span>` : ""}
+      </div>
+      ${info.type ? `<span class="emp-cal-type">${escapeHtml(info.type)}</span>` : ""}
+      ${info.shift.custom ? `<span class="cal-shift-tag">${escapeHtml(formatShift(info.shift))}</span>` : ""}
+      ${r?.checkIn ? `<span class="cal-time cal-time-in">In ${formatTimeAmPm(r.checkIn)}</span>` : ""}
+      ${r?.checkOut ? `<span class="cal-time cal-time-out">Out ${formatTimeAmPm(r.checkOut)}</span>` : ""}
+      ${info.deductionMins ? `<span class="cal-late-badge">-${escapeHtml(formatDuration(info.deductionMins))}</span>` : ""}
+    </div>`;
+  }
+  el.empCalGrid.innerHTML = html;
+
+  el.empCalSummary.innerHTML = `
+    <div class="month-stat"><span>Full Days</span><strong>${counts.full}</strong></div>
+    <div class="month-stat"><span>Half / Short Days</span><strong>${counts.half}</strong></div>
+    <div class="month-stat"><span>Absent</span><strong>${counts.absent}</strong></div>
+    <div class="month-stat"><span>Late Days</span><strong>${counts.late}</strong></div>
+    <div class="month-stat"><span>Time Deducted</span><strong>${counts.deduction ? formatDuration(counts.deduction) : "0 min"}</strong></div>
+    <div class="month-stat"><span>Hours Worked</span><strong>${Math.floor(counts.worked / 60)}h ${counts.worked % 60}m</strong></div>
   `;
 }
 
@@ -469,10 +571,17 @@ function renderAttendance() {
   renderMetrics(state.attendance);
   renderMonthSummary(filtered);
 
+  const today = todayKey();
   const rows = filtered.map((record) => {
     const hours = record.checkIn && record.checkOut ? calcHours(record.checkIn, record.checkOut) : "-";
-    const status = calcStatus(record);
-    const pillClass = statusPillClass(status);
+    const shift = shiftForEmployee(state.employee, record.dateKey);
+    const info = dayType(record, shift, record.dateKey, today);
+    const status = info.type || calcStatus(record);
+    const pillClass = info.tone || statusPillClass(status);
+    const timingPills = [
+      info.timing.hasIn ? `<span class="pill ${info.timing.lateMins > 0 ? "late" : "done"}">${escapeHtml(inRemark(info.timing))}</span>` : "",
+      info.timing.hasOut ? `<span class="pill ${info.timing.earlyLeaveMins > 0 ? "error" : info.timing.overtimeMins > 0 ? "info" : "done"}">${escapeHtml(outRemark(info.timing))}</span>` : "",
+    ].filter(Boolean).join("");
     const lockHtml = !record.checkIn || !record.checkOut
       ? "-"
       : deleteMsLeft(record.dateKey, record.checkOut) > 0
@@ -480,17 +589,21 @@ function renderAttendance() {
         : '<span class="pill done">Locked</span>';
     return `<tr>
       <td data-label="Date">${escapeHtml(record.dateKey || "-")}</td>
-      <td data-label="Check In">${escapeHtml(record.checkIn || "-")}</td>
-      <td data-label="Check Out">${escapeHtml(record.checkOut || "-")}</td>
+      <td data-label="Shift">${escapeHtml(formatShift(shift))}</td>
+      <td data-label="Check In">${record.checkIn ? escapeHtml(formatTimeAmPm(record.checkIn)) : "-"}</td>
+      <td data-label="Check Out">${record.checkOut ? escapeHtml(formatTimeAmPm(record.checkOut)) : "-"}</td>
+      <td data-label="Late / Early">${timingPills ? `<div class="timing-pills">${timingPills}</div>` : "-"}</td>
       <td data-label="Hours">${hours}</td>
-      <td data-label="Status"><span class="pill ${pillClass}">${status}</span></td>
+      <td data-label="Day"><span class="pill ${pillClass}">${escapeHtml(status)}</span></td>
+      <td data-label="Deduction">${info.deductionMins ? escapeHtml(formatDuration(info.deductionMins)) : "-"}</td>
       <td data-label="Location">${locationCell(record)}</td>
       <td data-label="Lock">${lockHtml}</td>
     </tr>`;
   }).join("");
 
-  el.empAttendanceBody.innerHTML = rows || '<tr><td colspan="7" class="empty-state">No attendance records found.</td></tr>';
+  el.empAttendanceBody.innerHTML = rows || '<tr><td colspan="10" class="empty-state">No attendance records found.</td></tr>';
 
+  renderCalendar();
   renderTodayAction();
 }
 
@@ -577,6 +690,15 @@ function wireEvents() {
   el.empToDate.addEventListener("change", () => {
     state.filterTo = el.empToDate.value;
     renderAttendance();
+  });
+
+  el.empCalPrevBtn.addEventListener("click", () => {
+    state.calMonth = shiftMonth(state.calMonth || todayKey().slice(0, 7), -1);
+    renderCalendar();
+  });
+  el.empCalNextBtn.addEventListener("click", () => {
+    state.calMonth = shiftMonth(state.calMonth || todayKey().slice(0, 7), 1);
+    renderCalendar();
   });
 
   el.empClearFilters.addEventListener("click", () => {

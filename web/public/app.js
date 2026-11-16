@@ -31,6 +31,8 @@ const state = {
   calendarPageMonth: "",
   calendarSelectedDate: "",
   shiftEditorDate: "",
+  unknownCards: [],
+  assigningCardUid: "",
   view: "dashboardView",
   serialStatus: "Disconnected",
   syncStatus: "Local demo",
@@ -54,6 +56,9 @@ let attendanceUnsub = null;
 let remarksUnsub = null;
 let usersUnsub = null;
 let devicesUnsub = null;
+let unknownCardsUnsub = null;
+const pageOpenedAt = Date.now();
+const toastedCardScans = new Set();
 
 const ROLE_LABELS = {
   super_admin: "Super Admin",
@@ -72,19 +77,6 @@ function todayKey(date = new Date()) {
 
 function formatTime(date = new Date()) {
   return date.toTimeString().slice(0, 8);
-}
-
-function formatTimeAmPm(timeString) {
-  if (!timeString) return "";
-  const [hStr, mStr] = String(timeString).split(":");
-  let h = parseInt(hStr, 10);
-  if (Number.isNaN(h)) return "";
-  const period = h >= 12 ? "PM" : "AM";
-  h = h % 12;
-  if (h === 0) h = 12;
-  // Digits only: the result is inserted into HTML by several callers.
-  const minutes = String(mStr || "").replace(/\D/g, "").slice(0, 2).padStart(2, "0");
-  return `${h}:${minutes} ${period}`;
 }
 
 function normalizeUid(value) {
@@ -119,90 +111,14 @@ function calcStatus(record) {
   return "-";
 }
 
-// ---- SHIFTS ----
-// Each employee has a default shift (employees/{uid}.shiftStart / shiftEnd, "HH:MM"). A single day can
-// be overridden from the Calendar: employees/{uid}.shiftOverrides["YYYY-MM-DD"] = { start, end }.
-// Kept on the employee document so the existing rules (staff write, employee reads own) already apply.
-const DEFAULT_SHIFT = { start: "09:00", end: "18:00" };
-const SHIFT_PRESETS = [
-  { start: "09:00", end: "18:00" },
-  { start: "10:00", end: "19:00" },
-  { start: "11:00", end: "20:00" },
-];
-
-function validShiftTime(value) {
-  return /^([01]\d|2[0-3]):[0-5]\d$/.test(String(value || ""));
-}
-
-function toMinutes(timeString) {
-  if (!timeString) return null;
-  const [h, m] = String(timeString).split(":").map(Number);
-  return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : null;
-}
-
+// Shift maths (default / per-day shifts, late, early leave, overtime, day type) lives in shifts.js,
+// shared with the Employee Portal.
 function getEmployeeShift(employee) {
-  if (employee && validShiftTime(employee.shiftStart) && validShiftTime(employee.shiftEnd)) {
-    return { start: employee.shiftStart, end: employee.shiftEnd };
-  }
-  return { ...DEFAULT_SHIFT };
+  return employeeDefaultShift(employee);
 }
 
 function getShiftFor(uid, dateKey) {
-  const employee = state.employees.find((e) => e.uid === uid);
-  const override = employee?.shiftOverrides?.[dateKey];
-  if (override && validShiftTime(override.start) && validShiftTime(override.end)) {
-    return { start: override.start, end: override.end, custom: true };
-  }
-  return { ...getEmployeeShift(employee), custom: false };
-}
-
-function formatShift(shift) {
-  return `${formatTimeAmPm(shift.start)} - ${formatTimeAmPm(shift.end)}`;
-}
-
-function formatDuration(mins) {
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  if (h && m) return `${h}h ${m}m`;
-  if (h) return `${h}h`;
-  return `${m} min`;
-}
-
-// Compare a record's check-in / check-out with the shift for that day, to the minute.
-function shiftTiming(record, shift) {
-  const result = { lateMins: 0, earlyArrivalMins: 0, earlyLeaveMins: 0, overtimeMins: 0, hasIn: false, hasOut: false };
-  const startM = toMinutes(shift.start);
-  let endM = toMinutes(shift.end);
-  if (startM === null || endM === null) return result;
-  if (endM <= startM) endM += 24 * 60; // overnight shift
-
-  const inM = toMinutes(record?.checkIn);
-  if (inM !== null) {
-    result.hasIn = true;
-    if (inM > startM) result.lateMins = inM - startM;
-    else result.earlyArrivalMins = startM - inM;
-  }
-  let outM = toMinutes(record?.checkOut);
-  if (outM !== null) {
-    result.hasOut = true;
-    if (outM < startM && endM > 24 * 60) outM += 24 * 60;
-    if (outM < endM) result.earlyLeaveMins = endM - outM;
-    else result.overtimeMins = outM - endM;
-  }
-  return result;
-}
-
-function inRemark(timing) {
-  if (!timing.hasIn) return "";
-  if (timing.lateMins > 0) return `${formatDuration(timing.lateMins)} late`;
-  return "On time";
-}
-
-function outRemark(timing) {
-  if (!timing.hasOut) return "";
-  if (timing.earlyLeaveMins > 0) return `Left ${formatDuration(timing.earlyLeaveMins)} early`;
-  if (timing.overtimeMins > 0) return `${formatDuration(timing.overtimeMins)} overtime`;
-  return "Full shift";
+  return shiftForEmployee(state.employees.find((e) => e.uid === uid), dateKey);
 }
 
 function timingCell(record, shift) {
@@ -388,6 +304,8 @@ function cacheElements() {
     "shiftEmployeeSelect", "shiftFromDate", "shiftToDate", "shiftPresetSelect", "shiftStartInput", "shiftEndInput",
     "saveShiftBtn", "resetShiftBtn", "shiftHint", "downloadSheetBtn", "drawerDownloadBtn",
     "employeeShiftPreset", "employeeShiftStart", "employeeShiftEnd",
+    "unassignedList", "unassignedCount", "unassignedNavBadge", "assignBanner",
+    "cardToast", "cardToastText", "cardToastAssignBtn", "cardToastCloseBtn",
     "sidebar", "sidebarBackdrop", "openSidebarBtn", "closeSidebarBtn",
   ].forEach((id) => {
     elements[id] = document.getElementById(id);
@@ -461,19 +379,20 @@ function canManageLogins() {
 
 function applyUsersPanelForRole() {
   const isHr = state.role === "hr";
+  // HR can make HR and employee logins, never a Super Admin (Edit Time stays with Super Admin).
   elements.userRole.innerHTML = isHr
-    ? '<option value="employee" selected>Employee</option>'
+    ? '<option value="hr">HR</option><option value="employee" selected>Employee</option>'
     : '<option value="super_admin">Super Admin</option><option value="hr">HR</option><option value="employee" selected>Employee</option>';
   elements.userRole.dispatchEvent(new Event("change"));
-  elements.usersFormTitle.textContent = isHr ? "Give an employee a login" : "Add super admin, HR or employee access";
-  elements.usersListTitle.textContent = isHr ? "Employees who can sign in" : "Everyone who can sign in";
+  elements.usersFormTitle.textContent = isHr ? "Add HR or employee access" : "Add super admin, HR or employee access";
+  elements.usersListTitle.textContent = "Everyone who can sign in";
 }
 
 function applyRoleUI() {
   const isSuperAdmin = state.role === "super_admin";
   elements.usersNavLink.classList.toggle("hidden", !canManageLogins());
   applyUsersPanelForRole();
-  elements.devicesNavLink.classList.toggle("hidden", !isSuperAdmin);
+  elements.devicesNavLink.classList.toggle("hidden", !canManageLogins());
   elements.sampleDataBtn.classList.toggle("hidden", !isSuperAdmin);
   elements.roleStatusPill.textContent = ROLE_LABELS[state.role] || "";
   elements.roleStatusPill.className = `status-pill role-${state.role}`;
@@ -566,7 +485,7 @@ function router() {
     return;
   }
   if (section === "devices") {
-    if (state.role !== "super_admin") { location.hash = "#dashboard"; return; }
+    if (!canManageLogins()) { location.hash = "#dashboard"; return; }
     setView("devicesView");
     return;
   }
@@ -636,10 +555,7 @@ function readUsers() {
     state.users = [];
     return null;
   }
-  // HR only ever sees (and the rules only allow) employee logins, so the query must say so.
-  let query = state.db.collection("users");
-  if (state.role === "hr") query = query.where("role", "==", "employee");
-  return query.onSnapshot((snap) => {
+  return state.db.collection("users").onSnapshot((snap) => {
     state.users = snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (a.email || a.name || "").localeCompare(b.email || b.name || ""));
     renderUsersTable();
     renderDevicesTable(); // a reader's Pending/Approved status comes from its users/{uid} doc
@@ -647,13 +563,37 @@ function readUsers() {
 }
 
 function readDevices() {
-  if (!state.db || state.role !== "super_admin") {
+  if (!state.db || !canManageLogins()) {
     state.devices = [];
     return null;
   }
   return state.db.collection("devices").onSnapshot((snap) => {
     state.devices = snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => String(b.requestedAt || "").localeCompare(String(a.requestedAt || "")));
     renderDevicesTable();
+  }, handleFirestoreError);
+}
+
+// Cards tapped at a reader that belong to no employee yet (written by the reader, see firestore.rules).
+function readUnknownCards() {
+  if (!state.db || !["super_admin", "hr"].includes(state.role)) {
+    state.unknownCards = [];
+    return null;
+  }
+  return state.db.collection("unknownCards").onSnapshot((snap) => {
+    state.unknownCards = snap.docs
+      .map((d) => ({ ...d.data(), uid: d.id }))
+      .sort((a, b) => String(b.lastScanAt || "").localeCompare(String(a.lastScanAt || "")));
+    snap.docChanges().forEach((change) => {
+      if (change.type === "removed") return;
+      const card = change.doc.data();
+      const at = new Date(card.lastScanAt || 0).getTime();
+      const key = `${change.doc.id}|${card.lastScanAt}`;
+      if (at > pageOpenedAt - 60000 && !toastedCardScans.has(key)) {
+        toastedCardScans.add(key);
+        showCardToast(change.doc.id, card.readerName);
+      }
+    });
+    renderUnknownCards();
   }, handleFirestoreError);
 }
 
@@ -669,11 +609,13 @@ async function loadData() {
   if (remarksUnsub) remarksUnsub();
   if (usersUnsub) usersUnsub();
   if (devicesUnsub) devicesUnsub();
+  if (unknownCardsUnsub) unknownCardsUnsub();
   employeesUnsub = readEmployees();
   attendanceUnsub = readAttendance();
   remarksUnsub = readRemarks();
   usersUnsub = readUsers();
   devicesUnsub = readDevices();
+  unknownCardsUnsub = readUnknownCards();
 }
 
 function filterBySearch(items, search, fields) {
@@ -706,10 +648,11 @@ function editTimeButton(record) {
 
 function attendanceRow(record) {
   const hours = record.checkIn && record.checkOut ? calcHours(record.checkIn, record.checkOut) : "-";
-  const status = calcStatus(record);
-  const pillClass = statusPillClass(status);
   const day = record.dateKey ? getWeekdayShort(record.dateKey) : "-";
   const shift = getShiftFor(record.uid, record.dateKey);
+  const info = dayType(record, shift, record.dateKey, todayKey());
+  const status = info.type || calcStatus(record);
+  const pillClass = info.tone;
   return `<tr>
     <td data-label="Date">${escapeHtml(record.dateKey || "-")}</td>
     <td data-label="Day">${escapeHtml(day)}</td>
@@ -743,7 +686,7 @@ function renderTodayAttendance() {
 }
 
 function employeeRow(employee) {
-  const deleteBtn = state.role === "super_admin"
+  const deleteBtn = canManageLogins()
     ? `<button class="mini-btn" data-delete-employee="${escapeHtml(employee.uid)}" type="button">Delete</button>`
     : "";
   return `<tr>
@@ -897,9 +840,10 @@ function renderDrawer() {
   // Table
   const rows = filtered.map((record) => {
     const hours = record.checkIn && record.checkOut ? calcHours(record.checkIn, record.checkOut) : "-";
-    const status = calcStatus(record);
-    const pillClass = statusPillClass(status);
     const shift = getShiftFor(record.uid, record.dateKey);
+    const info = dayType(record, shift, record.dateKey, todayKey());
+    const status = info.type || calcStatus(record);
+    const pillClass = info.tone;
     return `<tr>
       <td data-label="Date">${escapeHtml(record.dateKey)}</td>
       <td data-label="Shift">${shiftCell(shift)}</td>
@@ -938,8 +882,9 @@ function renderDrawerCalendar(employee) {
     const dateKey = `${ym}-${String(day).padStart(2, "0")}`;
     const record = empRecords.find((r) => r.dateKey === dateKey);
     const remark = empRemarks.find((r) => r.date === dateKey);
-    const status = record ? calcStatus(record) : (dateKey < today ? "Absent" : "");
-    const pillClass = status ? statusPillClass(status) : "";
+    const dayInfo = dayType(record, getShiftFor(employee.uid, dateKey), dateKey, today);
+    const status = dayInfo.type;
+    const pillClass = dayInfo.tone;
     const cellClasses = ["calendar-cell"];
     if (dateKey === today) cellClasses.push("is-today");
     if (remark) cellClasses.push("has-remark");
@@ -949,7 +894,8 @@ function renderDrawerCalendar(employee) {
     const shift = getShiftFor(employee.uid, dateKey);
     const timing = shiftTiming(record, shift);
 
-    const tooltipParts = [`Shift: ${formatShift(shift)}${shift.custom ? " (custom)" : ""}`];
+    const tooltipParts = [`${status || "Upcoming"} | Shift: ${formatShift(shift)}${shift.custom ? " (custom)" : ""}`];
+    if (dayInfo.deductionMins) tooltipParts.push(`Deduction: ${formatDuration(dayInfo.deductionMins)}`);
     if (checkInTime) tooltipParts.push(`Check-in: ${checkInTime} (${inRemark(timing)})`);
     if (checkOutTime) tooltipParts.push(`Check-out: ${checkOutTime} (${outRemark(timing)})`);
     if (remark) tooltipParts.push(`Remark: ${remark.text}`);
@@ -1110,6 +1056,99 @@ function renderCalendarSidePanel() {
   elements.calSideList.innerHTML = attendanceHtml + remarksHtml;
 }
 
+// ---- UNASSIGNED CARDS (live assign) ----
+
+function renderUnknownCards() {
+  if (!elements.unassignedList) return;
+  const cards = state.unknownCards.filter((c) => !state.employees.some((e) => e.uid === c.uid));
+  elements.unassignedCount.textContent = cards.length ? `${cards.length} waiting` : "None waiting";
+  elements.unassignedCount.className = `status-pill${cards.length ? " accent" : ""}`;
+  elements.unassignedNavBadge.textContent = String(cards.length);
+  elements.unassignedNavBadge.classList.toggle("hidden", !cards.length);
+  elements.unassignedList.innerHTML = cards.length
+    ? cards.map((c) => `
+      <div class="unassigned-card">
+        <div class="unassigned-card-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M7 10h4M7 14h7"/><circle cx="17" cy="10" r="1.5"/></svg>
+        </div>
+        <div class="unassigned-card-body">
+          <strong class="mono">${escapeHtml(c.uid)}</strong>
+          <span>Tapped ${escapeHtml(formatWhen(c.lastScanAt))}${c.readerName ? ` &bull; ${escapeHtml(c.readerName)}` : ""}</span>
+        </div>
+        <div class="unassigned-card-actions">
+          <button class="primary-btn" data-assign-card="${escapeHtml(c.uid)}" type="button">Assign</button>
+          <button class="mini-btn" data-dismiss-card="${escapeHtml(c.uid)}" type="button">Dismiss</button>
+        </div>
+      </div>`).join("")
+    : `<div class="unassigned-empty">
+        <strong>No unassigned cards</strong>
+        <span>Tap a new card on any approved reader. It shows up here instantly, ready to assign.</span>
+      </div>`;
+  elements.unassignedList.querySelectorAll("[data-assign-card]").forEach((btn) => {
+    btn.addEventListener("click", () => startAssignCard(btn.getAttribute("data-assign-card")));
+  });
+  elements.unassignedList.querySelectorAll("[data-dismiss-card]").forEach((btn) => {
+    btn.addEventListener("click", () => dismissUnknownCard(btn.getAttribute("data-dismiss-card")));
+  });
+}
+
+async function recordUnknownCard(uid, source) {
+  const card = { uid, lastScanAt: new Date().toISOString(), readerId: "dashboard", readerName: `Dashboard (${source})`.slice(0, 40) };
+  if (!state.db) {
+    state.unknownCards = [card, ...state.unknownCards.filter((c) => c.uid !== uid)];
+    renderUnknownCards();
+    return;
+  }
+  try {
+    await state.db.collection("unknownCards").doc(uid).set(card);
+  } catch (error) {
+    handleFirestoreError(error);
+  }
+}
+
+async function dismissUnknownCard(uid) {
+  state.unknownCards = state.unknownCards.filter((c) => c.uid !== uid);
+  renderUnknownCards();
+  if (!state.db) return;
+  try {
+    await state.db.collection("unknownCards").doc(uid).delete();
+  } catch (error) {
+    handleFirestoreError(error);
+  }
+}
+
+function startAssignCard(uid) {
+  hideCardToast();
+  clearEmployeeForm();
+  state.assigningCardUid = uid;
+  elements.employeeUid.value = uid;
+  elements.employeeUid.readOnly = true;
+  const card = state.unknownCards.find((c) => c.uid === uid);
+  const seen = card ? `Tapped ${escapeHtml(formatWhen(card.lastScanAt))}${card.readerName ? ` at ${escapeHtml(card.readerName)}` : ""}. ` : "";
+  elements.assignBanner.innerHTML = `<strong>Assigning card <span class="mono">${escapeHtml(uid)}</span></strong>
+    <span>${seen}Fill in the employee details and their shift, then Save.</span>`;
+  elements.assignBanner.classList.remove("hidden");
+  location.hash = "#employees/add";
+  setTimeout(() => elements.employeeId.focus(), 50);
+}
+
+let cardToastUid = "";
+let cardToastTimer = null;
+
+function showCardToast(uid, readerName) {
+  if (!elements.cardToast || state.employees.some((e) => e.uid === uid)) return;
+  cardToastUid = uid;
+  elements.cardToastText.innerHTML = `New card <span class="mono">${escapeHtml(uid)}</span> tapped${readerName ? ` at ${escapeHtml(readerName)}` : ""}`;
+  elements.cardToast.classList.remove("hidden");
+  clearTimeout(cardToastTimer);
+  cardToastTimer = setTimeout(hideCardToast, 20000);
+}
+
+function hideCardToast() {
+  if (elements.cardToast) elements.cardToast.classList.add("hidden");
+  clearTimeout(cardToastTimer);
+}
+
 // ---- SHIFT EDITOR (Calendar side panel) ----
 
 function renderShiftEditor() {
@@ -1214,7 +1253,8 @@ async function saveShiftOverride(reset) {
 const SHEET_HEADER = [
   "Date", "Day", "Employee ID", "Employee Name", "Branch", "Department",
   "Shift", "Shift Type", "Check In", "Check Out", "Status",
-  "Late (min)", "Arrival", "Early Leave (min)", "Overtime (min)", "Departure", "Worked Hours", "Remarks",
+  "Late (min)", "Arrival", "Early Leave (min)", "Overtime (min)", "Departure", "Worked Hours",
+  "Day Type", "Deduction (min)", "Remarks",
 ];
 
 // One row per employee per day in [from, to] (future days skipped), so absent days show up too.
@@ -1230,7 +1270,8 @@ function buildSheetRows(uids, from, to) {
     employees.forEach((emp) => {
       const rec = state.attendance.find((r) => r.dateKey === dateKey && r.uid === emp.uid && r.checkIn);
       const shift = getShiftFor(emp.uid, dateKey);
-      const timing = shiftTiming(rec, shift);
+      const info = dayType(rec, shift, dateKey, today);
+      const timing = info.timing;
       const remarks = state.remarks.filter((r) => r.uid === emp.uid && r.date === dateKey).map((r) => r.text).join("; ");
       let status = "Absent";
       if (rec) status = rec.checkOut ? "Checked Out" : "Present";
@@ -1253,6 +1294,8 @@ function buildSheetRows(uids, from, to) {
         timing.hasOut ? timing.overtimeMins : "",
         outRemark(timing),
         rec?.checkIn && rec?.checkOut ? calcHours(rec.checkIn, rec.checkOut) : "",
+        info.type,
+        info.deductionMins,
         remarks,
       ]);
     });
@@ -1315,6 +1358,7 @@ function renderAll() {
   renderCompanyCalendar();
   renderCalendarSidePanel();
   renderShiftEditor();
+  renderUnknownCards();
   if (canManageLogins()) {
     renderUserEmployeeOptions();
     renderUsersTable();
@@ -1325,6 +1369,8 @@ function renderAll() {
 
 function clearEmployeeForm() {
   state.editingEmployeeUid = "";
+  state.assigningCardUid = "";
+  if (elements.assignBanner) elements.assignBanner.classList.add("hidden");
   elements.employeeUid.readOnly = false;
   elements.employeeForm.reset();
   elements.employeeShiftStart.value = DEFAULT_SHIFT.start;
@@ -1339,6 +1385,8 @@ function fillEmployeeForm(uid) {
   // The card UID is the employee's database key (attendance and remarks point at it), so it can't be
   // changed while editing; typing a different one would create a second employee instead.
   state.editingEmployeeUid = emp.uid;
+  state.assigningCardUid = "";
+  elements.assignBanner.classList.add("hidden");
   elements.employeeUid.readOnly = true;
   elements.employeeUid.value = emp.uid;
   elements.employeeId.value = emp.employeeId || "";
@@ -1392,7 +1440,7 @@ async function saveEmployee(employee) {
 }
 
 async function deleteEmployee(uid) {
-  if (state.role !== "super_admin") return;
+  if (!canManageLogins()) return;
   if (!state.db) {
     state.employees = state.employees.filter((e) => e.uid !== uid);
     state.attendance = state.attendance.filter((e) => e.uid !== uid);
@@ -1404,11 +1452,13 @@ async function deleteEmployee(uid) {
     // Delete employee
     await state.db.collection("employees").doc(uid).delete();
 
-    // Delete all attendance for this employee
-    const attSnap = await state.db.collection("attendance").where("uid", "==", uid).get();
-    const attBatch = state.db.batch();
-    attSnap.forEach((doc) => attBatch.delete(doc.ref));
-    if (!attSnap.empty) await attBatch.commit();
+    // Delete all attendance for this employee (Super Admin only: HR's delete keeps the history)
+    if (state.role === "super_admin") {
+      const attSnap = await state.db.collection("attendance").where("uid", "==", uid).get();
+      const attBatch = state.db.batch();
+      attSnap.forEach((doc) => attBatch.delete(doc.ref));
+      if (!attSnap.empty) await attBatch.commit();
+    }
 
     // Delete all remarks for this employee
     const remSnap = await state.db.collection("remarks").where("uid", "==", uid).get();
@@ -1515,7 +1565,7 @@ function userRow(user) {
     <td data-label="Role"><span class="pill role-${escapeHtml(user.role)}">${escapeHtml(ROLE_LABELS[user.role] || user.role)}</span></td>
     <td data-label="Linked Employee">${employee ? escapeHtml(employee.name) : "-"}</td>
     <td data-label="Actions">
-      ${isSelf ? '<span class="support-note">This is you</span>' : `<button class="mini-btn" data-revoke-user="${escapeHtml(user.id)}" type="button">Revoke Access</button>`}
+      ${isSelf ? '<span class="support-note">This is you</span>' : state.role === "hr" && user.role === "super_admin" ? '<span class="support-note">Super Admin</span>' : `<button class="mini-btn" data-revoke-user="${escapeHtml(user.id)}" type="button">Revoke Access</button>`}
     </td>
   </tr>`;
 }
@@ -1577,7 +1627,7 @@ function renderDevicesTable() {
 
 async function approveDevice(deviceId) {
   const device = state.devices.find((d) => d.id === deviceId);
-  if (!device || state.role !== "super_admin" || !state.db) return;
+  if (!device || !canManageLogins() || !state.db) return;
   try {
     await state.db.collection("users").doc(deviceId).set({
       email: null,
@@ -1593,7 +1643,7 @@ async function approveDevice(deviceId) {
 }
 
 async function revokeDevice(deviceId) {
-  if (state.role !== "super_admin" || !state.db) return;
+  if (!canManageLogins() || !state.db) return;
   try {
     await state.db.collection("users").doc(deviceId).delete();
   } catch (error) {
@@ -1602,7 +1652,7 @@ async function revokeDevice(deviceId) {
 }
 
 async function removeDevice(deviceId) {
-  if (state.role !== "super_admin" || !state.db) return;
+  if (!canManageLogins() || !state.db) return;
   try {
     const batch = state.db.batch();
     batch.delete(state.db.collection("users").doc(deviceId));
@@ -1661,7 +1711,7 @@ async function handleUserSubmit(event) {
   const name = elements.userName.value.trim();
   const email = elements.userEmail.value.trim();
   const password = elements.userPassword.value;
-  const role = state.role === "hr" ? "employee" : elements.userRole.value; // HR can only make employee logins
+  const role = state.role === "hr" && elements.userRole.value === "super_admin" ? "employee" : elements.userRole.value; // HR can't make Super Admins
   const employeeUid = elements.userEmployeeLink.value;
 
   if (!name || !email || !password || !role) {
@@ -1759,6 +1809,7 @@ async function processScan(rawUid, source = "manual") {
   }
 
   if (!employee) {
+    recordUnknownCard(uid, source);
     state.liveOutput = { status: "error", message: "UNKNOWN CARD", uid, time, source };
     state.scanFeed.unshift({ uid, type: "error", name: "Unknown", message: "UNKNOWN CARD", time, source });
     state.scanFeed = state.scanFeed.slice(0, 8);
@@ -1904,7 +1955,13 @@ async function handleEmployeeSubmit(event) {
   }
 
   await saveEmployee(employee);
+  const assignedCard = state.unknownCards.some((c) => c.uid === employee.uid);
   clearEmployeeForm();
+  if (assignedCard) {
+    await dismissUnknownCard(employee.uid);
+    state.liveOutput = { status: "success", message: `Card ${employee.uid} assigned to ${employee.name}` };
+    location.hash = "#dashboard";
+  }
   renderAll();
 }
 
@@ -2110,6 +2167,10 @@ function wireEvents() {
     }
     downloadSheet([uid], from, to, getEmployeeName(uid));
   });
+
+  // Live card toast
+  elements.cardToastAssignBtn.addEventListener("click", () => { if (cardToastUid) startAssignCard(cardToastUid); });
+  elements.cardToastCloseBtn.addEventListener("click", hideCardToast);
 
   // Company calendar
   elements.calPrevBtn.addEventListener("click", () => {

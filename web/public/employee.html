@@ -9,6 +9,12 @@
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
   <link rel="stylesheet" href="employee-styles.css" />
+  <link rel="manifest" href="employee.webmanifest" />
+  <meta name="theme-color" content="#1B1464" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="TechCADD Employee" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="icon" type="image/png" href="icons/icon-192.png" />
 </head>
 <body>
 
@@ -34,6 +40,10 @@
         </label>
         <button class="primary-btn wide-btn" type="submit">View My Attendance</button>
         <p id="empLoginHint" class="support-note"></p>
+        <button class="install-app-btn hidden" type="button" data-install-app>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+          Install App
+        </button>
         <a href="index.html" class="emp-portal-link">Admin Login</a>
       </form>
     </div>
@@ -53,6 +63,10 @@
       </div>
       <div class="emp-header-right">
         <span class="status-pill" id="empInfoPill">-</span>
+        <button class="install-app-btn hidden" type="button" data-install-app>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+          Install App
+        </button>
         <button id="empLogoutBtn" class="secondary-btn" type="button">Logout</button>
       </div>
     </header>
@@ -107,6 +121,29 @@
       </article>
     </div>
 
+    <!-- My Calendar -->
+    <article class="panel glass-card">
+      <div class="panel-head">
+        <div>
+          <p class="panel-tag">My Calendar</p>
+          <h2>Full day, half day, absent &amp; deductions</h2>
+        </div>
+        <div class="calendar-nav">
+          <button id="empCalPrevBtn" class="mini-btn" type="button">&lsaquo; Prev</button>
+          <strong id="empCalLabel">-</strong>
+          <button id="empCalNextBtn" class="mini-btn" type="button">Next &rsaquo;</button>
+        </div>
+      </div>
+      <div id="empCalSummary" class="month-summary"></div>
+      <div class="emp-cal-legend">
+        <span><i class="legend-dot done"></i>Full Day</span>
+        <span><i class="legend-dot late"></i>Half Day / No Check-Out</span>
+        <span><i class="legend-dot error"></i>Absent / Short Day</span>
+        <span><i class="legend-dot info"></i>Present (in office)</span>
+      </div>
+      <div id="empCalGrid" class="calendar-grid emp-calendar-grid"></div>
+    </article>
+
     <!-- Attendance Table -->
     <article class="panel glass-card">
       <div class="panel-head">
@@ -130,10 +167,13 @@
           <thead>
             <tr>
               <th>Date</th>
+              <th>Shift</th>
               <th>Check In</th>
               <th>Check Out</th>
+              <th>Late / Early</th>
               <th>Hours</th>
-              <th>Status</th>
+              <th>Day</th>
+              <th>Deduction</th>
               <th>Location</th>
               <th>Lock</th>
             </tr>
@@ -145,10 +185,22 @@
 
   </div>
 
+
+  <!-- INSTALL HELP (shown when the browser has no one-click install, e.g. iPhone Safari) -->
+  <div id="installHelp" class="install-help hidden" role="dialog" aria-modal="true" aria-labelledby="installHelpTitle">
+    <div class="install-help-card glass-card">
+      <h2 id="installHelpTitle">Install the app</h2>
+      <ol id="installHelpSteps"></ol>
+      <button class="primary-btn wide-btn" type="button" data-install-help-close>Got it</button>
+    </div>
+  </div>
+
   <script src="/config.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+  <script src="shifts.js"></script>
   <script src="employee-app.js"></script>
+  <script src="pwa.js"></script>
 </body>
 </html>

@@ -7,11 +7,13 @@ rules_version = '2';
 //    super_admin - full access: manages users/roles, can delete
 //                   employees, and is the only role that may rewrite
 //                   an already-set check-in/check-out time (Edit Time).
-//    hr          - manages employees (add/edit, not delete) and
-//                   attendance/remarks day-to-day, and creates / revokes
-//                   EMPLOYEE logins (only). Cannot rewrite a time that's
-//                   already been recorded, cannot delete employees, and
-//                   cannot create HR / admin logins or approve readers.
+//    hr          - everything except rewriting a recorded time: manages
+//                   employees (add / edit / delete), assigns unassigned
+//                   cards, attendance/remarks day-to-day, creates / revokes
+//                   HR and employee logins, and approves / revokes readers.
+//                   Cannot rewrite a time that's already been recorded (Edit
+//                   Time), cannot delete attendance records, and can never
+//                   create, change or revoke a super_admin login.
 //    device      - an ESP32 card reader. It has NO email/password: it signs
 //                   in anonymously, registers itself in devices/{uid} as
 //                   "pending", and a super_admin approves it from the
@@ -58,10 +60,11 @@ service cloud.firestore {
 
     // Login/role directory.
     //   super_admin - creates / changes / revokes any login and sees them all.
-    //   hr          - may create and revoke ONLY employee logins, and sees only those. A new
-    //                 employee login must be linked to an EXISTING employee record and carry no
-    //                 extra fields. hr can never create or change an hr / super_admin / device
-    //                 role, and can never overwrite an existing login doc (create only, no update).
+    //   hr          - sees every login; may create employee / hr logins and approve card readers
+    //                 (role 'device', only for a reader that registered itself in devices/), and
+    //                 revoke any login except a super_admin's or their own. A new employee login must
+    //                 be linked to an EXISTING employee record. hr can never create a super_admin and
+    //                 can never overwrite an existing login doc (create only, no update).
     //   everyone    - may read their own record to discover their role.
     match /users/{userId} {
       function validNewEmployeeLogin() {
@@ -71,14 +74,25 @@ service cloud.firestore {
           && exists(/databases/$(database)/documents/employees/$(request.resource.data.employeeUid));
       }
 
-      allow get: if isSignedIn()
-        && (isSuperAdmin() || request.auth.uid == userId || (isHR() && resource.data.role == 'employee'));
-      // hr's list query must itself filter  where("role", "==", "employee")
-      allow list: if isSuperAdmin() || (isHR() && resource.data.role == 'employee');
-      allow create: if isSuperAdmin() || (isHR() && validNewEmployeeLogin());
+      function validNewHrLogin() {
+        return request.resource.data.role == 'hr'
+          && request.resource.data.keys().hasOnly(['email', 'name', 'role', 'employeeUid', 'createdAt', 'createdBy'])
+          && request.resource.data.get('employeeUid', null) == null;
+      }
+
+      function validReaderApproval() {
+        return request.resource.data.role == 'device'
+          && request.resource.data.keys().hasOnly(['email', 'name', 'role', 'employeeUid', 'createdAt', 'createdBy'])
+          && exists(/databases/$(database)/documents/devices/$(userId));
+      }
+
+      allow get: if isSignedIn() && (isStaff() || request.auth.uid == userId);
+      allow list: if isStaff();
+      allow create: if isSuperAdmin()
+        || (isHR() && (validNewEmployeeLogin() || validNewHrLogin() || validReaderApproval()));
       allow update: if isSuperAdmin();
       allow delete: if (isSuperAdmin() && request.auth.uid != userId)
-        || (isHR() && resource.data.role == 'employee');
+        || (isHR() && request.auth.uid != userId && resource.data.role != 'super_admin');
     }
 
     // Card readers waiting for / holding approval. The reader (an anonymous account whose uid is the
@@ -92,25 +106,25 @@ service cloud.firestore {
           && request.auth.token.firebase.sign_in_provider == 'anonymous';
       }
 
-      allow get: if isSuperAdmin() || (isSignedIn() && request.auth.uid == deviceId);
-      allow list: if isSuperAdmin();
+      allow get: if isStaff() || (isSignedIn() && request.auth.uid == deviceId);
+      allow list: if isStaff();
       allow create: if isThisAnonymousReader()
         && request.resource.data.keys().hasOnly(['name', 'requestedAt', 'lastSeenAt'])
         && request.resource.data.name is string && request.resource.data.name.size() <= 40
         && request.resource.data.requestedAt is string;
-      allow update: if isSuperAdmin()
+      allow update: if isStaff()
         || (isThisAnonymousReader()
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastSeenAt']));
-      allow delete: if isSuperAdmin();
+      allow delete: if isStaff();
     }
 
     match /employees/{uid} {
       allow get: if isStaff() || isDevice() || (isEmployee() && myEmployeeUid() == uid);
       allow list: if isStaff();
       allow create, update: if isStaff();
-      // Deleting an employee cascades (client-side) to wiping their whole
-      // attendance + remarks history, so it's a super_admin-only action.
-      allow delete: if isSuperAdmin();
+      // super_admin's delete also wipes the attendance history (client-side cascade); hr's delete
+      // keeps the attendance records, since only super_admin may delete those.
+      allow delete: if isStaff();
     }
 
     match /attendance/{docId} {
@@ -155,6 +169,23 @@ service cloud.firestore {
 
     match /remarks/{id} {
       allow read, write: if isStaff();
+    }
+
+    // Cards that were tapped at a reader but belong to no employee yet. The dashboard lists them live
+    // so staff can assign the card on the spot. An approved reader may only record the card UID and
+    // where / when it was seen - it still cannot read or list anything here.
+    match /unknownCards/{cardUid} {
+      function validUnknownCard() {
+        return cardUid.matches('^[A-Z0-9]{4,32}$')
+          && request.resource.data.keys().hasOnly(['uid', 'lastScanAt', 'readerId', 'readerName'])
+          && request.resource.data.uid == cardUid
+          && request.resource.data.lastScanAt is string && request.resource.data.lastScanAt.size() <= 40
+          && request.resource.data.get('readerId', '') is string && request.resource.data.get('readerId', '').size() <= 128
+          && request.resource.data.get('readerName', '') is string && request.resource.data.get('readerName', '').size() <= 40;
+      }
+
+      allow read, delete: if isStaff();
+      allow create, update: if (isStaff() || isDevice()) && validUnknownCard();
     }
   }
 }

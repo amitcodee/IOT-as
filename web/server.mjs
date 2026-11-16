@@ -18,6 +18,7 @@ const mimeTypes = new Map([
   [".jpg", "image/jpeg"],
   [".jpeg", "image/jpeg"],
   [".woff2", "font/woff2"],
+  [".webmanifest", "application/manifest+json; charset=utf-8"],
 ]);
 
 function escapeScriptJson(value) {
@@ -30,7 +31,7 @@ async function serveFile(res, filePath) {
   const data = await readFile(filePath);
   res.writeHead(200, {
     "content-type": contentType,
-    "cache-control": ext === ".html" ? "no-store" : "public, max-age=3600",
+    "cache-control": ext === ".html" || path.basename(filePath) === "sw.js" ? "no-store" : "public, max-age=3600",
   });
   res.end(data);
 }

@@ -273,24 +273,23 @@ describe("Super Admin login (index.html)", () => {
 });
 
 describe("HR login (index.html)", () => {
-  test("logs in as HR: Users (employee logins) yes, Devices no, no sample-data button, badge says HR", async () => {
+  test("logs in as HR: Users and Devices yes, no sample-data button, badge says HR", async () => {
     const page = await newPage();
     await adminLogin(page, ACCOUNTS.hr);
     await page.waitForSelector("#appShell:not(.hidden)");
     assert.equal(await text(page, "#roleStatusPill"), "HR");
     assert.equal(await hasHiddenClass(page, "#usersNavLink"), false, "HR makes employee logins, so Users must be shown");
-    assert.equal(await hasHiddenClass(page, "#devicesNavLink"), true, "Devices is Super Admin only");
+    assert.equal(await hasHiddenClass(page, "#devicesNavLink"), false, "HR approves card readers too");
     assert.equal(await hasHiddenClass(page, "#sampleDataBtn"), true, "sample-data button must be hidden from HR");
   });
-  test("HR can open #/users, but #/devices sends them back to the dashboard", async () => {
+  test("HR can open #/users and #/devices", async () => {
     const page = await newPage();
     await adminLogin(page, ACCOUNTS.hr);
     await page.waitForSelector("#appShell:not(.hidden)");
     await page.goto(`${BASE}/#/users`);
     await page.waitForSelector("#usersView.is-active");
     await page.goto(`${BASE}/#/devices`);
-    await page.waitForTimeout(500);
-    assert.equal(await visible(page, "#devicesView.is-active"), false);
+    await page.waitForSelector("#devicesView.is-active");
   });
 
   test("HR can add an employee and run the scan flow", async () => {
@@ -317,7 +316,7 @@ describe("HR login (index.html)", () => {
     assert.ok(row.checkIn && row.checkOut);
   });
 
-  test("HR has no Edit Time or Delete-employee controls", async () => {
+  test("HR has no Edit Time control, but can delete employees", async () => {
     const env = await getEnv();
     const day = todayLocalKey();
     await env.withSecurityRulesDisabled((ctx) => ctx.firestore().doc(`attendance/${day}_A1B2C3D4`).set({
@@ -331,17 +330,22 @@ describe("HR login (index.html)", () => {
     assert.equal(await page.locator("button:has-text('Edit Time')").count(), 0);
     await page.goto(`${BASE}/#/employees/manager`);
     await page.waitForSelector("#managerView.is-active");
-    assert.equal(await page.locator("#employeeTableBody button:has-text('Delete')").count(), 0, "HR must not see Delete");
+    assert.ok(await page.locator("#employeeTableBody button:has-text('Delete')").count() > 0, "HR sees Delete");
   });
 
-  test("HR cannot delete an employee even by calling Firestore directly (rules enforce it)", async () => {
+  test("HR cannot rewrite a recorded check-in even by calling Firestore directly (rules enforce it)", async () => {
+    const env = await getEnv();
+    const day = todayLocalKey();
+    await env.withSecurityRulesDisabled((ctx) => ctx.firestore().doc(`attendance/${day}_A1B2C3D4`).set({
+      uid: "A1B2C3D4", dateKey: day, checkIn: "09:30:00", checkOut: null,
+    }));
     const page = await newPage();
     await adminLogin(page, ACCOUNTS.hr);
     await page.waitForSelector("#appShell:not(.hidden)");
-    const result = await page.evaluate(async () => {
-      try { await firebase.firestore().collection("employees").doc("A1B2C3D4").delete(); return "deleted"; }
+    const result = await page.evaluate(async (d) => {
+      try { await firebase.firestore().collection("attendance").doc(`${d}_A1B2C3D4`).update({ checkIn: "09:00:00" }); return "changed"; }
       catch (e) { return e.code; }
-    });
+    }, day);
     assert.equal(result, "permission-denied");
   });
 });
@@ -835,7 +839,7 @@ describe("CHAIN: Super Admin makes an HR, the HR makes an employee, the employee
     await fillUserForm(admin, { name: "Priya HR", email: "priya.hr@test.local", password: "PriyaHR#123" });
     assert.match(await text(admin, "#userFormHint"), /Login created/, "admin creating the HR login");
 
-    // 2. That HR signs in: Users panel is there, but only for employee logins
+    // 2. That HR signs in: Users panel is there, offering HR and employee logins (never Super Admin)
     const hr = await newPage({ geolocation: null });
     const r = await tryLogin(hr, "staff", "priya.hr@test.local", "PriyaHR#123");
     assert.equal(r.loggedIn, true, JSON.stringify(r));
@@ -844,13 +848,9 @@ describe("CHAIN: Super Admin makes an HR, the HR makes an employee, the employee
     await until(hr, "HR sees 3 employees", () => document.querySelector("#metricEmployees").textContent === "3");
     await hr.goto(`${BASE}/#/users`);
     await step("HR opens Users", hr.waitForSelector("#usersView.is-active", { timeout: 15000 }));
-    assert.deepEqual(await hr.locator("#userRole option").evaluateAll((o) => o.map((x) => x.value)), ["employee"], "HR may only offer the employee role");
-    assert.match(await text(hr, "#usersFormTitle"), /employee a login/i);
+    assert.deepEqual(await hr.locator("#userRole option").evaluateAll((o) => o.map((x) => x.value)), ["hr", "employee"], "HR offers HR + employee, never Super Admin");
+    assert.match(await text(hr, "#usersFormTitle"), /HR or employee/i);
     await until(hr, "HR sees employee logins", () => document.querySelector("#usersTableBody").textContent.includes("john@test.local"));
-    const listed = await text(hr, "#usersTableBody");
-    for (const hidden of [ACCOUNTS.admin.email, ACCOUNTS.hr.email, "priya.hr@test.local", ACCOUNTS.device.email]) {
-      assert.ok(!listed.includes(hidden), `HR can see a non-employee login: ${hidden}`);
-    }
 
     // 3. HR adds a NEW employee (card) and gives them a login
     await addEmployeeViaForm(hr, { uid: "CAFE0100", id: "EMP100", name: "Fresh Hire", branch: "Chennai" });
@@ -869,10 +869,10 @@ describe("CHAIN: Super Admin makes an HR, the HR makes an employee, the employee
     assert.match(await text(emp, "#empProfileGrid"), /EMP100/);
   });
 
-  test("HR cannot make an HR / admin login: the database refuses it and no orphan account is left behind", async () => {
+  test("HR cannot make a Super Admin / device login: the database refuses it and no orphan account is left behind", async () => {
     const hr = await newPage({ geolocation: null });
     assert.equal((await tryLogin(hr, "staff", ACCOUNTS.hr.email, ACCOUNTS.hr.password)).loggedIn, true);
-    for (const role of ["hr", "super_admin", "device"]) {
+    for (const role of ["super_admin", "device"]) {
       const email = `sneaky-${role}@test.local`;
       const res = await hr.evaluate((a) => createStaffAccount(a), { email, password: "Sneaky#12345", role, name: "Sneaky", employeeUid: "" });
       assert.equal(res.ok, false, `HR managed to create a ${role} login`);

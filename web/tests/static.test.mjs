@@ -1,7 +1,7 @@
 // Static checks that need no emulator or browser.
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,7 +10,7 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => readFileSync(path.join(root, p), "utf8");
 
 describe("syntax", () => {
-  for (const f of ["server.mjs", "lib/config.mjs", "scripts/build-config.mjs", "public/app.js", "public/employee-app.js"]) {
+  for (const f of ["server.mjs", "lib/config.mjs", "scripts/build-config.mjs", "public/app.js", "public/employee-app.js", "public/shifts.js", "public/pwa.js", "public/sw.js"]) {
     test(`node --check ${f}`, () => {
       const r = spawnSync(process.execPath, ["--check", path.join(root, f)], { encoding: "utf8" });
       assert.equal(r.status, 0, r.stderr);
@@ -82,7 +82,8 @@ describe("HTML <-> JS contract: every element id the scripts look up exists in t
       for (const m of read(f).matchAll(/(?:src|href)="([^"#?]+)"/g)) {
         const ref = m[1];
         if (/^(https?:)?\/\//.test(ref) || ref.startsWith("/config.js") || ref.endsWith(".html")) continue;
-        assert.ok(files.has(ref.replace(/^\//, "")), `${f} references missing asset ${ref}`);
+        const rel = ref.replace(/^\//, "");
+        assert.ok(files.has(rel) || existsSync(path.join(root, "public", rel)), `${f} references missing asset ${ref}`);
       }
     }
   });

@@ -336,6 +336,14 @@ void processScan(String uid) {
   int empCode = fsGet("employees/" + uid, empResp);
   if (empCode == 404) {
     Serial.println("UNKNOWN CARD: " + uid);
+    // Let the web dashboard show this card live under "Unassigned Cards" so staff can assign it.
+    String body = "{\"fields\":{";
+    body += "\"uid\":{\"stringValue\":\"" + uid + "\"},";
+    body += "\"lastScanAt\":{\"stringValue\":\"" + isoNow() + "\"},";
+    body += "\"readerId\":{\"stringValue\":\"" + deviceUid + "\"},";
+    body += "\"readerName\":{\"stringValue\":\"" MY_DEVICE_NAME "\"}";
+    body += "}}";
+    if (fsPatch("unknownCards/" + uid, body)) Serial.println("-> shown in the dashboard as an unassigned card");
     blinkLed(5, 80);
     return;
   }

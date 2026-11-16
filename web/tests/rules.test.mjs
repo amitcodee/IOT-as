@@ -44,23 +44,27 @@ describe("users/{uid} — role directory", () => {
       await assertSucceeds(as(k).doc(`users/${uids[k]}`).get());
     }
   });
-  test("hr / employee / device cannot read someone else's user doc", async () => {
-    for (const k of ["hr", "emp", "device"]) {
+  test("employee / device cannot read someone else's user doc (staff can)", async () => {
+    for (const k of ["emp", "device"]) {
       await assertFails(as(k).doc(`users/${uids.admin}`).get());
     }
+    await assertSucceeds(as("hr").doc(`users/${uids.admin}`).get());
   });
-  test("only super_admin can list users", async () => {
+  test("only staff (super_admin, hr) can list users", async () => {
     await assertSucceeds(as("admin").collection("users").get());
-    for (const k of ["hr", "emp", "device", "norole"]) {
+    await assertSucceeds(as("hr").collection("users").get());
+    for (const k of ["emp", "device", "norole"]) {
       await assertFails(as(k).collection("users").get());
     }
   });
-  test("only super_admin can create / update roles", async () => {
+  test("only super_admin can update roles; employee / device cannot create any", async () => {
     const newUser = { email: "x@y.z", name: "X", role: "hr", employeeUid: null };
     await assertSucceeds(as("admin").doc("users/newuid1").set(newUser));
     await assertSucceeds(as("admin").doc(`users/${uids.hr}`).update({ role: "device" }));
-    for (const k of ["hr", "emp", "device"]) {
+    for (const k of ["emp", "device"]) {
       await assertFails(as(k).doc("users/newuid2").set(newUser));
+    }
+    for (const k of ["hr", "emp", "device"]) {
       await assertFails(as(k).doc(`users/${uids[k]}`).update({ role: "super_admin" }));
     }
   });
@@ -71,10 +75,10 @@ describe("users/{uid} — role directory", () => {
     await assertSucceeds(as("admin").doc(`users/${uids.hr}`).delete());
     await assertFails(as("admin").doc(`users/${uids.admin}`).delete());
   });
-  test("hr cannot delete admin / hr / device logins (only employee logins)", async () => {
+  test("hr can revoke readers and employees, but never a super_admin or their own login", async () => {
     await assertFails(as("hr").doc(`users/${uids.admin}`).delete());
     await assertFails(as("hr").doc(`users/${uids.hr}`).delete());
-    await assertFails(as("hr").doc(`users/${uids.device}`).delete());
+    await assertSucceeds(as("hr").doc(`users/${uids.device}`).delete());
   });
 });
 
@@ -94,10 +98,16 @@ describe("users/{uid} - admin makes HR, HR makes employee logins", () => {
     await assertSucceeds(as("hr").doc("users/emp-login-1").set(employeeLogin()));
   });
 
-  test("hr can NOT create hr / super_admin / device logins", async () => {
-    for (const role of ["hr", "super_admin", "device"]) {
-      await assertFails(as("hr").doc(`users/evil-${role}`).set(employeeLogin({ role, employeeUid: null })));
-    }
+  test("hr can create an HR login, but never a super_admin", async () => {
+    await assertSucceeds(as("hr").doc("users/new-hr").set(employeeLogin({ role: "hr", employeeUid: null })));
+    await assertFails(as("hr").doc("users/evil-admin").set(employeeLogin({ role: "super_admin", employeeUid: null })));
+  });
+
+  test("hr can approve a reader only if it registered itself in devices/", async () => {
+    const approval = { email: null, name: "Front Door", role: "device", employeeUid: null, createdAt: "x", createdBy: "hr@test.local" };
+    await assertFails(as("hr").doc("users/not-a-reader").set(approval));
+    await env.withSecurityRulesDisabled((ctx) => ctx.firestore().doc("devices/reader-2").set({ name: "Front Door", requestedAt: "x" }));
+    await assertSucceeds(as("hr").doc("users/reader-2").set(approval));
   });
 
   test("hr can NOT smuggle extra fields into an employee login", async () => {
@@ -121,23 +131,14 @@ describe("users/{uid} - admin makes HR, HR makes employee logins", () => {
     await assertFails(as("hr").doc(`users/${uids.hr}`).update({ role: "super_admin" }));
   });
 
-  test("hr sees only employee logins: a filtered query works, an unfiltered one is denied", async () => {
-    const snap = await assertSucceeds(as("hr").collection("users").where("role", "==", "employee").get());
-    assert.ok(snap.size >= 2, "employee logins are listed");
-    assert.ok(snap.docs.every((d) => d.data().role === "employee"), "only employee logins come back");
-    await assertFails(as("hr").collection("users").get());
-    await assertFails(as("hr").collection("users").where("role", "==", "hr").get());
-    await assertFails(as("hr").collection("users").where("role", "==", "super_admin").get());
+  test("hr sees every login", async () => {
+    const snap = await assertSucceeds(as("hr").collection("users").get());
+    assert.ok(snap.size >= 4);
+    await assertSucceeds(as("hr").doc(`users/${uids.admin}`).get());
+    await assertSucceeds(as("hr").doc(`users/${uids.device}`).get());
   });
 
-  test("hr can read an employee login but not an hr / admin login", async () => {
-    await assertSucceeds(as("hr").doc(`users/${uids.emp}`).get());
-    await assertFails(as("hr").doc(`users/${uids.admin}`).get());
-    await assertSucceeds(as("hr").doc(`users/${uids.hr}`).get()); // their own record
-    await assertFails(as("hr").doc(`users/${uids.device}`).get());
-  });
-
-  test("hr can revoke (delete) an employee login, and only that", async () => {
+  test("hr can revoke (delete) an employee login, but not a super_admin's or their own", async () => {
     await assertSucceeds(as("hr").doc(`users/${uids.emp}`).delete());
     await assertFails(as("hr").doc(`users/${uids.admin}`).delete());
     await assertFails(as("hr").doc(`users/${uids.hr}`).delete());
@@ -192,11 +193,34 @@ describe("employees/{uid}", () => {
       await assertFails(as(k).doc(`employees/${JOHN}`).update({ name: "Hacked" }));
     }
   });
-  test("only super_admin can delete an employee", async () => {
-    await assertFails(as("hr").doc(`employees/${JOHN}`).delete());
+  test("only staff (super_admin, hr) can delete an employee", async () => {
     await assertFails(as("device").doc(`employees/${JOHN}`).delete());
     await assertFails(as("emp").doc(`employees/${JOHN}`).delete());
-    await assertSucceeds(as("admin").doc(`employees/${JOHN}`).delete());
+    await assertSucceeds(as("hr").doc(`employees/${JOHN}`).delete());
+    await assertSucceeds(as("admin").doc(`employees/${SARAH}`).delete());
+  });
+});
+
+describe("unknownCards/{uid} - live assign of new cards", () => {
+  const card = (over = {}) => ({ uid: "NEWCARD1", lastScanAt: "2026-11-16T09:00:00Z", readerId: "r1", readerName: "Front Door", ...over });
+  test("an approved reader can report an unknown card, but cannot read the list", async () => {
+    await assertSucceeds(as("device").doc("unknownCards/NEWCARD1").set(card()));
+    await assertFails(as("device").collection("unknownCards").get());
+    await assertFails(as("device").doc("unknownCards/NEWCARD1").get());
+  });
+  test("the report is shape-checked: id must match the uid, no extra fields", async () => {
+    await assertFails(as("device").doc("unknownCards/OTHER").set(card()));
+    await assertFails(as("device").doc("unknownCards/NEWCARD1").set(card({ name: "x" })));
+    await assertFails(as("device").doc("unknownCards/bad id").set(card({ uid: "bad id" })));
+  });
+  test("staff can list and dismiss; employees and role-less accounts cannot touch it", async () => {
+    await env.withSecurityRulesDisabled((ctx) => ctx.firestore().doc("unknownCards/NEWCARD1").set(card()));
+    for (const k of ["admin", "hr"]) await assertSucceeds(as(k).collection("unknownCards").get());
+    for (const k of ["emp", "norole"]) {
+      await assertFails(as(k).collection("unknownCards").get());
+      await assertFails(as(k).doc("unknownCards/NEWCARD2").set(card({ uid: "NEWCARD2" })));
+    }
+    await assertSucceeds(as("hr").doc("unknownCards/NEWCARD1").delete());
   });
 });
 
@@ -421,14 +445,14 @@ describe("devices/{id} - card reader pairing (anonymous sign-in, approved from t
       await assertFails(reader().doc(`devices/${READER}`).update({ name: "Renamed" }));
       await assertFails(reader().doc(`devices/${READER}`).update({ role: "device" }));
     });
-    test("only super_admin can list / rename / delete readers", async () => {
+    test("only staff (super_admin, hr) can list / rename / delete readers", async () => {
       await assertSucceeds(as("admin").collection("devices").get());
+      await assertSucceeds(as("hr").collection("devices").get());
       await assertSucceeds(as("admin").doc(`devices/${READER}`).update({ name: "Back Door" }));
-      for (const k of ["hr", "emp", "device", "norole"]) await assertFails(as(k).collection("devices").get());
+      for (const k of ["emp", "device", "norole"]) await assertFails(as(k).collection("devices").get());
       await assertFails(reader().collection("devices").get());
-      await assertFails(as("hr").doc(`devices/${READER}`).delete());
       await assertFails(reader().doc(`devices/${READER}`).delete());
-      await assertSucceeds(as("admin").doc(`devices/${READER}`).delete());
+      await assertSucceeds(as("hr").doc(`devices/${READER}`).delete());
     });
 
     test("PENDING reader (no users doc) can read / write nothing else", async () => {
